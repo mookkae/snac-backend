@@ -1,7 +1,7 @@
 package com.ureca.snac.wallet.entity;
 
 import com.ureca.snac.wallet.exception.InsufficientBalanceException;
-import com.ureca.snac.wallet.exception.InvalidAMountException;
+import com.ureca.snac.wallet.exception.InvalidAmountException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import lombok.AccessLevel;
@@ -101,7 +101,7 @@ public class AssetBalance {
 
     private void validatePositiveAmount(long amount) {
         if (amount <= 0) {
-            throw new InvalidAMountException();
+            throw new InvalidAmountException();
         }
     }
 

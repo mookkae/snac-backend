@@ -52,6 +52,7 @@ public class Wallet extends BaseTimeEntity {
                 .build();
     }
 
+    // 머니
     public void depositMoney(long amount) {
         this.money.deposit(amount);
     }
@@ -60,16 +61,7 @@ public class Wallet extends BaseTimeEntity {
         this.money.withdraw(amount);
     }
 
-    public void depositPoint(long amount) {
-        this.point.deposit(amount);
-    }
-
-    public void withdrawPoint(long amount) {
-        this.point.withdraw(amount);
-    }
-
     // 에스크로 위임 메소드
-    // 머니
     public void moveMoneyToEscrow(long amount) {
         this.money.moveToEscrow(amount);
     }
@@ -83,6 +75,14 @@ public class Wallet extends BaseTimeEntity {
     }
 
     // 포인트
+    public void depositPoint(long amount) {
+        this.point.deposit(amount);
+    }
+
+    public void withdrawPoint(long amount) {
+        this.point.withdraw(amount);
+    }
+
     public void movePointToEscrow(long amount) {
         this.point.moveToEscrow(amount);
     }
@@ -93,34 +93,6 @@ public class Wallet extends BaseTimeEntity {
 
     public void deductPointEscrow(long amount) {
         this.point.deductEscrow(amount);
-    }
-
-    // 복합 결제
-    public void withdrawComposite(long moneyAmount, long pointAmount) {
-        if (moneyAmount > 0) {
-            this.money.withdraw(moneyAmount);
-        }
-        if (pointAmount > 0) {
-            this.point.withdraw(pointAmount);
-        }
-    }
-
-    public void moveCompositeToEscrow(long moneyAmount, long pointAmount) {
-        if (moneyAmount > 0) {
-            this.money.moveToEscrow(moneyAmount);
-        }
-        if (pointAmount > 0) {
-            this.point.moveToEscrow(pointAmount);
-        }
-    }
-
-    public void releaseCompositeEscrow(long moneyAmount, long pointAmount) {
-        if (moneyAmount > 0) {
-            this.money.releaseEscrow(moneyAmount);
-        }
-        if (pointAmount > 0) {
-            this.point.releaseEscrow(pointAmount);
-        }
     }
 
     public Long getMoneyBalance() {
