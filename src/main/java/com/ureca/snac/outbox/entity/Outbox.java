@@ -14,8 +14,8 @@ import java.util.UUID;
 @Table(
         name = "outbox",
         indexes = {
-                @Index(name = "idx_status_created", columnList = "status, createdAt"),
-                @Index(name = "idx_aggregate", columnList = "aggregateType, aggregatedId")
+                @Index(name = "idx_status_created", columnList = "status, created_at"),
+                @Index(name = "idx_aggregate", columnList = "aggregate_type, aggregate_id")
         }
 )
 @Getter

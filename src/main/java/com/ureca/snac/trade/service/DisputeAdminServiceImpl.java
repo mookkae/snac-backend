@@ -23,7 +23,7 @@ import com.ureca.snac.trade.repository.DisputeRepository;
 import com.ureca.snac.trade.service.interfaces.DisputeAdminService;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
 import com.ureca.snac.trade.service.interfaces.TradeCancelService;
-import com.ureca.snac.wallet.Repository.WalletRepository;
+import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import jakarta.transaction.Transactional;
@@ -35,7 +35,6 @@ import org.springframework.stereotype.Service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -74,7 +73,7 @@ public class DisputeAdminServiceImpl implements DisputeAdminService {
 //
 //                // 환불 패널티 x
 //            }
-            case ANSWERED  -> {
+            case ANSWERED -> {
                 dispute.answered(dto.getAnswer());
 
 //                // 최종처리, 환불 등
@@ -91,7 +90,6 @@ public class DisputeAdminServiceImpl implements DisputeAdminService {
             }
         }
     }
-
 
 
     // 목록 조회
@@ -123,9 +121,10 @@ public class DisputeAdminServiceImpl implements DisputeAdminService {
 //        trade.resumeAutoConfirm(); // 자동 확정 재개
 //    }
 
-    /** 환불 + 거래 취소 + 자동확정 재개
-     *    1) ANSWERED 상태의 Dispute 에서만 수행 (권한·검증 명확)
-     *    2) 이미 CANCELED 인 거래면 중복 방지
+    /**
+     * 환불 + 거래 취소 + 자동확정 재개
+     * 1) ANSWERED 상태의 Dispute 에서만 수행 (권한·검증 명확)
+     * 2) 이미 CANCELED 인 거래면 중복 방지
      */
     @Override
     public void refundAndCancel(Long disputeId, String adminEmail) {
@@ -181,10 +180,11 @@ public class DisputeAdminServiceImpl implements DisputeAdminService {
         penaltyService.givePenalty(sellerEmail, PenaltyReason.SELLER_FAULT);
     }
 
-    /** 활성 신고가 없으면 원상복구 + 자동확정 재개
-     *  - NEED_MORE / IN_PROGRESS 가 0개일 때만 복구
-     *  - 복구 기준: 최초 RE REPORTED 적용 Dispute.prevTradeStatus
-     *  - 반환값: true = 복구됨 / false = 스킵
+    /**
+     * 활성 신고가 없으면 원상복구 + 자동확정 재개
+     * - NEED_MORE / IN_PROGRESS 가 0개일 때만 복구
+     * - 복구 기준: 최초 RE REPORTED 적용 Dispute.prevTradeStatus
+     * - 반환값: true = 복구됨 / false = 스킵
      */
     @Override
     public boolean restoreIfNoActive(Long disputeId, String adminEmail) {

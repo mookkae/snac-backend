@@ -1,4 +1,4 @@
-package com.ureca.snac.wallet.Repository;
+package com.ureca.snac.wallet.repository;
 
 import com.ureca.snac.wallet.entity.Wallet;
 import jakarta.persistence.LockModeType;
