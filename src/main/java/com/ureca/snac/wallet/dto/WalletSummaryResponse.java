@@ -13,6 +13,6 @@ public record WalletSummaryResponse(
      * @return DTO
      */
     public static WalletSummaryResponse from(Wallet wallet) {
-        return new WalletSummaryResponse(wallet.getMoney(), wallet.getPoint());
+        return new WalletSummaryResponse(0L, 0L);
     }
 }

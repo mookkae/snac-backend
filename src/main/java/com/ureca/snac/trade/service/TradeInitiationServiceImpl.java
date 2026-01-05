@@ -18,7 +18,7 @@ import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.exception.*;
 import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.interfaces.TradeInitiationService;
-import com.ureca.snac.wallet.Repository.WalletRepository;
+import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import com.ureca.snac.wallet.service.WalletService;

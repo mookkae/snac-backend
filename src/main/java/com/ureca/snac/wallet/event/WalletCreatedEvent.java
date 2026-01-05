@@ -1,27 +1,30 @@
-package com.ureca.snac.member.event;
+package com.ureca.snac.wallet.event;
 
 import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.DomainEvent;
 import com.ureca.snac.common.event.EventType;
 
 /**
- * 회원가입 완료 이벤트
- * 지갑 생성 및 웰컴 포인트 지급을 트리거
+ * 지갑 생성 완료 이벤트
+ * 웰컴 포인트 지급 트리거
  */
-public record MemberJoinEvent(Long memberId) implements DomainEvent {
+public record WalletCreatedEvent(
+        Long walletId,
+        Long memberId
+) implements DomainEvent {
 
     @Override
     public EventType getEventType() {
-        return EventType.MEMBER_JOIN;
+        return EventType.WALLET_CREATED;
     }
 
     @Override
     public AggregateType getAggregateType() {
-        return AggregateType.MEMBER;
+        return AggregateType.WALLET;
     }
 
     @Override
     public Long getAggregateId() {
-        return memberId;
+        return walletId;
     }
 }
