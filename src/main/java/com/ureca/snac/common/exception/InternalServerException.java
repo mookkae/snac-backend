@@ -14,4 +14,12 @@ public class InternalServerException extends BaseCustomException {
     public InternalServerException(BaseCode baseCode) {
         super(baseCode);
     }
+
+    public InternalServerException(BaseCode baseCode, String message) {
+        super(baseCode, message);
+    }
+
+    public InternalServerException(BaseCode baseCode, String message, Throwable cause) {
+        super(baseCode, message, cause);
+    }
 }

@@ -16,4 +16,10 @@ public abstract class BaseCustomException extends RuntimeException {
         super(customMessage);
         this.baseCode = baseCode;
     }
+
+    // 원인 같이 받음
+    public BaseCustomException(BaseCode baseCode, String customMessage, Throwable cause) {
+        super(customMessage, cause); // 부모에 원인 전달 스택트레이스 위해서
+        this.baseCode = baseCode;
+    }
 }
