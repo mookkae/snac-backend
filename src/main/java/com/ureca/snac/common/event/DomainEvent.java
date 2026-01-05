@@ -19,15 +19,15 @@ public interface DomainEvent {
      * Aggregate 타입
      * Exchange 결정에 사용
      *
-     * @return "MEMBER", "WALLET", "PAYMENT" 등
+     * @return AggregateType Enum (AggregateType.MEMBER, WALLET, PAYMENT 등)
      */
-    String getAggregateType();
+    AggregateType getAggregateType();
 
     /**
      * 이벤트 타입 (클래스명)
      * Routing Key 결정에 사용
      *
-     * @return "MemberJoinEvent", "WalletCreatedEvent" 등
+     * @return EventType Enum (EventType.MEMBER_JOIN, WALLET_CREATED 등)
      */
-    String getEventType();
+    EventType getEventType();
 }

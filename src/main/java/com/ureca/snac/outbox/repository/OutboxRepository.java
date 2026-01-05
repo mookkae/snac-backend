@@ -16,7 +16,6 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
     /**
      * 발행 대기 중인 이벤트 조회 (배치 크기 제한)
      * <p>
-     * 조회 대상:
      * 1. SEND_FAIL 상태 (발행 실패한 이벤트)
      * 2. INIT 상태 + 오래된 이벤트 (서버 장애로 발행 못한 이벤트)
      *

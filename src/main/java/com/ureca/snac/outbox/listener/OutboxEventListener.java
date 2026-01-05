@@ -3,6 +3,7 @@ package com.ureca.snac.outbox.listener;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.common.event.DomainEvent;
+import com.ureca.snac.common.event.EventType;
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
 import com.ureca.snac.outbox.exception.OutboxSerializationException;
@@ -34,9 +35,9 @@ public class OutboxEventListener {
      * Hybrid Push 대상 이벤트 화이트리스트
      * 속도가 중요한 이벤트만 등록 (회원가입, 지갑 생성 등)
      */
-    private static final Set<String> HYBRID_PUSH_EVENTS = Set.of(
-            "MemberJoinEvent",
-            "WalletCreatedEvent"
+    private static final Set<EventType> HYBRID_PUSH_EVENTS = Set.of(
+            EventType.MEMBER_JOIN,
+            EventType.WALLET_CREATED
     );
 
     /**
@@ -49,7 +50,7 @@ public class OutboxEventListener {
     public void saveToOutbox(DomainEvent event) {
         try {
             log.debug("[Outbox] 이벤트 저장 시작. eventType: {}, aggregateId: {}",
-                    event.getEventType(), event.getAggregateId());
+                    event.getEventType().getTypeName(), event.getAggregateId());
 
             String payload = objectMapper.writeValueAsString(event);
 
@@ -82,11 +83,11 @@ public class OutboxEventListener {
             }
 
         } catch (JsonProcessingException e) {
-            log.error("[Outbox] 직렬화 실패. 전체 트랜잭션 롤백. eventType: {}, aggregateId: {}", event.getEventType(), event.getAggregateId(), e);
+            log.error("[Outbox] JSON 직렬화 실패. 전체 트랜잭션 롤백. eventType: {}, aggregateId: {}",
+                    event.getEventType().getTypeName(), event.getAggregateId(), e);
 
             throw new OutboxSerializationException(
-                    "이벤트 직렬화 실패: " + event.getEventType(),
-                    e
+                    "이벤트 직렬화 실패: " + event.getEventType().getTypeName(), e
             );
         }
     }
@@ -97,7 +98,7 @@ public class OutboxEventListener {
      * @param eventType 이벤트 타입
      * @return Hybrid Push 대상 여부
      */
-    private boolean isHybridPushTarget(String eventType) {
+    private boolean isHybridPushTarget(EventType eventType) {
         return HYBRID_PUSH_EVENTS.contains(eventType);
     }
 }

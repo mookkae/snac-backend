@@ -1,6 +1,8 @@
 package com.ureca.snac.outbox.entity;
 
 import com.ureca.snac.common.BaseTimeEntity;
+import com.ureca.snac.common.event.AggregateType;
+import com.ureca.snac.common.event.EventType;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -66,15 +68,15 @@ public class Outbox extends BaseTimeEntity {
 
     // 팩토리 메서드
     public static Outbox create(
-            String eventType,
-            String aggregateType,
+            EventType eventType,
+            AggregateType aggregateType,
             Long aggregateId,
             String payload
     ) {
         return Outbox.builder()
                 .eventId(UUID.randomUUID().toString())
-                .eventType(eventType)
-                .aggregateType(aggregateType)
+                .eventType(eventType.getTypeName())
+                .aggregateType(aggregateType.getTypeName())
                 .aggregateId(aggregateId)
                 .payload(payload)
                 .status(OutboxStatus.INIT)

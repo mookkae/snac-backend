@@ -14,13 +14,13 @@ public record WalletCreatedEvent(
 ) implements DomainEvent {
 
     @Override
-    public String getEventType() {
-        return EventType.WALLET_CREATED.getTypeName();
+    public EventType getEventType() {
+        return EventType.WALLET_CREATED;
     }
 
     @Override
-    public String getAggregateType() {
-        return AggregateType.WALLET.getTypeName();
+    public AggregateType getAggregateType() {
+        return AggregateType.WALLET;
     }
 
     @Override

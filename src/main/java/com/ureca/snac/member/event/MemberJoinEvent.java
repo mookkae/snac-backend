@@ -11,13 +11,13 @@ import com.ureca.snac.common.event.EventType;
 public record MemberJoinEvent(Long memberId) implements DomainEvent {
 
     @Override
-    public String getEventType() {
-        return EventType.MEMBER_JOIN.getTypeName();
+    public EventType getEventType() {
+        return EventType.MEMBER_JOIN;
     }
 
     @Override
-    public String getAggregateType() {
-        return AggregateType.MEMBER.getTypeName();
+    public AggregateType getAggregateType() {
+        return AggregateType.MEMBER;
     }
 
     @Override
