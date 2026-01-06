@@ -3,8 +3,8 @@ package com.ureca.snac.wallet.dto;
 import com.ureca.snac.wallet.entity.Wallet;
 
 public record WalletSummaryResponse(
-        Long money,
-        Long point
+        Long moneyBalance,
+        Long pointBalance
 ) {
     /**
      * 엔티티 객체를 받아서 DTO를 반환하는 정적 팩토리 메소드
@@ -13,6 +13,9 @@ public record WalletSummaryResponse(
      * @return DTO
      */
     public static WalletSummaryResponse from(Wallet wallet) {
-        return new WalletSummaryResponse(0L, 0L);
+        return new WalletSummaryResponse(
+                wallet.getMoneyBalance(),
+                wallet.getPointBalance()
+        );
     }
 }

@@ -55,7 +55,7 @@ public class SignupBonusServiceImpl implements SignupBonusService {
 
     // 회원가입 포인트 지급 여부 확인
     private boolean isAlreadyGranted(Long memberId) {
-        return assetHistoryRepository.existsByMember_IdAndTransactionDetail(
+        return assetHistoryRepository.existsByMemberIdAndTransactionDetail(
                 memberId,
                 TransactionDetail.SIGNUP_BONUS
         );
