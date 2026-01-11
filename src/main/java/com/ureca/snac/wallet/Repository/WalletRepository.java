@@ -27,4 +27,13 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      */
     @Query("select w from Wallet w join fetch w.member m where m.email = :email")
     Optional<Wallet> findByMemberEmail(@Param("email") String email);
+
+    /**
+     * 멱등성 체크용
+     * COUNT 쿼리로 최적화 (SELECT * 대비 성능 우수)
+     *
+     * @param memberId 회원 ID
+     * @return 지갑 존재 여부
+     */
+    boolean existsByMemberId(Long memberId);
 }

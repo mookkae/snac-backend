@@ -23,7 +23,10 @@ import java.time.format.DateTimeFormatter;
                         columnList = "member_id, asset_type, tx_year_month, created_at DESC"),
                 // 전체 조회 보조인덱스
                 @Index(name = "idx_asset_history_member_asset_created",
-                        columnList = "member_id, asset_type, created_at DESC")
+                        columnList = "member_id, asset_type, created_at DESC"),
+                // 특정회원 보너스 지급 여부 확인 멱등성 체크
+                @Index(name = "idx_asset_history_member_detail",
+                        columnList = "member_id, transaction_detail")
         }
 )
 @Getter
@@ -56,6 +59,10 @@ public class AssetHistory extends BaseTimeEntity {
     @Column(nullable = false)
     private Long amount; // 가격
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "transaction_detail", nullable = false, length = 20)
+    private TransactionDetail transactionDetail;
+
     @Column(name = "balance_after", nullable = false)
     private Long balanceAfter;
 
@@ -76,35 +83,66 @@ public class AssetHistory extends BaseTimeEntity {
             AssetType assetType,
             TransactionType transactionType,
             TransactionCategory category,
+            TransactionDetail transactionDetail,
             Long amount,
             Long balanceAfter,
-            String title,
             SourceDomain sourceDomain,
             Long sourceId) {
 
         validateCreateRequest(member, assetType, transactionType, category,
-                amount, balanceAfter, title, sourceDomain, sourceId);
+                transactionDetail, amount, balanceAfter, sourceDomain, sourceId);
 
         return AssetHistory.builder()
                 .member(member)
                 .assetType(assetType)
                 .transactionType(transactionType)
                 .category(category)
+                .transactionDetail(transactionDetail)
                 .amount(amount)
                 .balanceAfter(balanceAfter)
-                .title(title)
+                .title(transactionDetail.getDisplayName())
                 .sourceDomain(sourceDomain)
                 .sourceId(sourceId)
                 .build();
     }
 
+    /**
+     * 회원가입 축하 포인트 내역 생성 전용 팩토리 메서드
+     * 고정값을 내부에서 처리하여 오류 방지
+     *
+     * @param member       회원
+     * @param amount       포인트 금액
+     * @param balanceAfter 지급 후 잔액
+     * @return AssetHistory
+     */
+    public static AssetHistory createSignupBonus(
+            Member member,
+            Long amount,
+            Long balanceAfter
+    ) {
+        return create(
+                member,
+                AssetType.POINT,
+                TransactionType.DEPOSIT,
+                TransactionCategory.EVENT,
+                TransactionDetail.SIGNUP_BONUS,
+                amount,
+                balanceAfter,
+                SourceDomain.EVENT,
+                member.getId()
+        );
+    }
+
     // 생성 시점의 조건 검증
     private static void validateCreateRequest(
             Member member, AssetType assetType, TransactionType transactionType,
-            TransactionCategory category, Long amount, Long balanceAfter,
-            String title, SourceDomain sourceDomain, Long sourceId) {
+            TransactionCategory category, TransactionDetail transactionDetail,
+            Long amount, Long balanceAfter, SourceDomain sourceDomain, Long sourceId) {
 
         if (member == null) {
+            throw new InvalidAssetSourceException();
+        }
+        if (transactionDetail == null) {
             throw new InvalidAssetSourceException();
         }
         if (amount == null || amount <= 0) {
@@ -112,9 +150,6 @@ public class AssetHistory extends BaseTimeEntity {
         }
         if (balanceAfter == null || balanceAfter < 0) {
             throw new InvalidAssetBalanceException();
-        }
-        if (title == null || title.isBlank() || title.length() > 50) {
-            throw new InvalidAssetTitleException();
         }
         if (sourceDomain == null || sourceId == null || sourceId <= 0) {
             throw new InvalidAssetSourceException();
@@ -138,5 +173,4 @@ public class AssetHistory extends BaseTimeEntity {
         String sign = this.transactionType == TransactionType.DEPOSIT ? "+" : "-";
         return sign + String.format("%,d", this.amount);
     }
-
 }

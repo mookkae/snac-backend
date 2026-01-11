@@ -5,11 +5,12 @@ import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.dto.WalletSummaryResponse;
 import com.ureca.snac.wallet.entity.Wallet;
+import com.ureca.snac.wallet.event.WalletCreatedEvent;
 import com.ureca.snac.wallet.exception.InsufficientBalanceException;
-import com.ureca.snac.wallet.exception.WalletAlreadyExistsException;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WalletServiceImpl implements WalletService {
 
     private final WalletRepository walletRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -27,16 +29,32 @@ public class WalletServiceImpl implements WalletService {
         log.info("[지갑생성] createWallet 진입. 회원 ID : {}, 이메일 : {}",
                 member.getId(), member.getEmail());
 
-        walletRepository.findByMemberId(member.getId()).ifPresent(
-                wallet -> {
-                    log.error("[지갑생성] 이미 지갑 존재. 회원 ID : {}", member.getId());
-                    throw new WalletAlreadyExistsException();
-                });
+        if (walletRepository.existsByMemberId(member.getId())) {
+            log.info("[지갑 생성] 이미 존재. 중복 처리 방지. 회원 ID: {}", member.getId());
+            return;
+        }
 
         Wallet wallet = Wallet.create(member);
         walletRepository.save(wallet);
 
         log.info("[지갑 생성] 생성 완료. 지갑 ID : {}, 회원 ID : {}", wallet.getId(), member.getId());
+
+        // Outbox 패턴 이벤트 발행
+        publishWalletCreatedEvent(wallet, member);
+    }
+
+    /**
+     * 지갑 생성 이벤트 발행 (Outbox 패턴)
+     * OutboxEventListener가 자동으로 Outbox 테이블에 저장
+     * Hybrid Push로 즉시 발행 안되면 이후에 스케줄러가 처리
+     */
+    private void publishWalletCreatedEvent(Wallet wallet, Member member) {
+        log.info("[이벤트 발행] 지갑 생성 이벤트 발행. 지갑 ID: {}, 회원 ID: {}",
+                wallet.getId(), member.getId());
+
+        eventPublisher.publishEvent(
+                new WalletCreatedEvent(wallet.getId(), member.getId())
+        );
     }
 
     @Override
