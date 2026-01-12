@@ -1,13 +1,7 @@
 package com.ureca.snac.config;
 
 /**
- * RabbitMQ 큐 이름 중앙 관리
- *
- * @RabbitListener는 컴파일 타임 상수만 허용하므로 static final 사용
- * <p>
- * 네이밍 규칙:
- * - 일반 큐: {domain}.{event}.queue
- * - DLQ: dlq.{domain}.{event}.queue
+ * RabbitMQ 큐 이름 및 인프라 상수 관리
  */
 public final class RabbitMQQueue {
 
@@ -18,6 +12,15 @@ public final class RabbitMQQueue {
     // Wallet Domain
     public static final String WALLET_CREATED_QUEUE = "wallet.created.queue";
     public static final String WALLET_CREATED_DLQ = "dlq.wallet.created.queue";
+
+    // Exchange
+    public static final String MEMBER_EXCHANGE = "member.exchange";
+    public static final String WALLET_EXCHANGE = "wallet.exchange";
+    public static final String OUTBOX_DLX = "dlx.outbox";
+
+    // DLX Routing Key
+    public static final String MEMBER_JOINED_DLX_ROUTING_KEY = "dlx.member.joined";
+    public static final String WALLET_CREATED_DLX_ROUTING_KEY = "dlx.wallet.created";
 
     private RabbitMQQueue() {
         // 인스턴스화 방지
