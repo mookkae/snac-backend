@@ -204,3 +204,7 @@ custom:
 
 shedlock:
   namespace: ${SHEDLOCK_NAMESPACE}
+
+slack:
+  webhook:
+    url: ${SLACK_WEBHOOK_URL}
