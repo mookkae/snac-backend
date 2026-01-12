@@ -7,11 +7,11 @@ public final class RabbitMQQueue {
 
     // Member Domain
     public static final String MEMBER_JOINED_QUEUE = "member.joined.queue";
-    public static final String MEMBER_JOINED_DLQ = "dlq.member.joined.queue";
+    public static final String MEMBER_JOINED_DLQ = "member.joined.dlq";
 
     // Wallet Domain
     public static final String WALLET_CREATED_QUEUE = "wallet.created.queue";
-    public static final String WALLET_CREATED_DLQ = "dlq.wallet.created.queue";
+    public static final String WALLET_CREATED_DLQ = "wallet.created.dlq";
 
     // Exchange
     public static final String MEMBER_EXCHANGE = "member.exchange";
