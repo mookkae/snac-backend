@@ -7,25 +7,18 @@ import lombok.RequiredArgsConstructor;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Aggregate 타입별 메시징 설정
- * Exchange와 타입 문자열을 중앙 관리
- * OCP 원칙: 새 도메인 추가 시 Enum만 수정
- */
+// Aggregate 타입 도메인 문자열
 @Getter
 @RequiredArgsConstructor
 public enum AggregateType {
-    MEMBER("MEMBER", "member.exchange"),
-    WALLET("WALLET", "wallet.exchange"),
-    PAYMENT("PAYMENT", "payment.exchange"),
-    TRADE("TRADE", "trade.exchange");
+    MEMBER("MEMBER"),
+    WALLET("WALLET"),
+    PAYMENT("PAYMENT"),
+    TRADE("TRADE");
 
-    private final String typeName;      // "MEMBER"
-    private final String exchange;      // "member.exchange"
+    private final String typeName;  // "MEMBER", "WALLET",
 
-    /**
-     * 타입 이름 → Enum 매핑 (O(1) 조회)
-     */
+    // 타입 Enum 매핑 O(1) 조회
     private static final Map<String, AggregateType> TYPE_MAP;
 
     static {
@@ -38,7 +31,7 @@ public enum AggregateType {
     /**
      * 타입 이름으로 AggregateType 조회
      *
-     * @param typeName 타입 이름 (예: "MEMBER")
+     * @param typeName 타입 이름 ("MEMBER", "WALLET",)
      * @return AggregateType
      * @throws UnknownAggregateTypeException 알 수 없는 타입
      */

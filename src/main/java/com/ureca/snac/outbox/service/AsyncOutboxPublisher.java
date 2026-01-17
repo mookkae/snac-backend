@@ -2,6 +2,7 @@ package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
+import com.ureca.snac.config.AggregateExchangeMapper;
 import com.ureca.snac.config.AsyncConfig;
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
 import lombok.RequiredArgsConstructor;
@@ -80,8 +81,10 @@ public class AsyncOutboxPublisher {
         AggregateType aggregateType = AggregateType.from(aggregateTypeName);
         EventType eventType = EventType.from(eventTypeName);
 
+        String exchange = AggregateExchangeMapper.getExchange(aggregateType);
+
         rabbitTemplate.convertAndSend(
-                aggregateType.getExchange(),
+                exchange,
                 eventType.getRoutingKey(),
                 payload,
                 message -> {
@@ -92,6 +95,6 @@ public class AsyncOutboxPublisher {
         );
 
         log.debug("[Async Push] RabbitMQ 발행 성공. exchange: {}, routingKey: {}, aggregateId: {}",
-                aggregateType.getExchange(), eventType.getRoutingKey(), aggregateId);
+                exchange, eventType.getRoutingKey(), aggregateId);
     }
 }
