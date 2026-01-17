@@ -85,6 +85,14 @@ dependencies {
     testImplementation 'com.h2database:h2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
+    // testContainers 모듈 버전 관리
+    testImplementation "org.testcontainers:testcontainers:2.0.2"
+    testImplementation "org.testcontainers:testcontainers-mysql:2.0.2"
+    testImplementation "org.testcontainers:testcontainers-rabbitmq:2.0.2"
+
+    // Awaitility (비동기 테스트)
+    testImplementation 'org.awaitility:awaitility:4.3.0'
+
     // s3
     implementation(platform("software.amazon.awssdk:bom:2.25.38"))
     implementation "software.amazon.awssdk:s3"
