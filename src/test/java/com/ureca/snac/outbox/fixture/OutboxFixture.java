@@ -27,17 +27,7 @@ public class OutboxFixture {
                 .build();
     }
 
-    public static Outbox memberJoinSendFail(Long memberId) {
-        return builder()
-                .eventType(EventType.MEMBER_JOIN)
-                .aggregateType(AggregateType.MEMBER)
-                .aggregateId(memberId)
-                .status(OutboxStatus.SEND_FAIL)
-                .withId(memberId)  // Publisher용
-                .build();
-    }
-
-    // 지갑 생성
+    // 지갑 생성 및 실패
     public static Outbox walletCreatedInit(Long walletId) {
         return builder()
                 .eventType(EventType.WALLET_CREATED)
@@ -47,8 +37,116 @@ public class OutboxFixture {
                 .build();
     }
 
+    public static Outbox walletCreatedSendFail(Long walletId) {
+        return builder()
+                .eventType(EventType.WALLET_CREATED)
+                .aggregateType(AggregateType.WALLET)
+                .aggregateId(walletId)
+                .status(OutboxStatus.SEND_FAIL)
+                .retryCount(1)
+                .build();
+    }
+
+    /**
+     * 스케줄러가 처리해야 할 오래된 INIT 상태
+     *
+     * @param memberId   회원 ID
+     * @param minutesAgo 몇 분 전에 생성되었는지
+     */
+    public static Outbox staleInit(Long memberId, int minutesAgo) {
+        return builder()
+                .eventType(EventType.MEMBER_JOIN)
+                .aggregateType(AggregateType.MEMBER)
+                .aggregateId(memberId)
+                .status(OutboxStatus.INIT)
+                .createdAt(LocalDateTime.now().minusMinutes(minutesAgo))
+                .build();
+    }
+
+    /**
+     * 재시도 횟수가 많은 SEND_FAIL 상태
+     *
+     * @param memberId   회원 ID
+     * @param retryCount 재시도 횟수
+     */
+    public static Outbox failedWithRetry(Long memberId, int retryCount) {
+        return builder()
+                .eventType(EventType.MEMBER_JOIN)
+                .aggregateType(AggregateType.MEMBER)
+                .aggregateId(memberId)
+                .status(OutboxStatus.SEND_FAIL)
+                .retryCount(retryCount)
+                .build();
+    }
+
+    /**
+     * 발행 완료된 오래된 이벤트 (Archiving 대상)
+     *
+     * @param memberId 회원 ID
+     * @param daysAgo  며칠 전에 발행되었는지
+     */
+    public static Outbox publishedOld(Long memberId, int daysAgo) {
+        LocalDateTime publishedTime = LocalDateTime.now().minusDays(daysAgo);
+
+        return builder()
+                .eventType(EventType.MEMBER_JOIN)
+                .aggregateType(AggregateType.MEMBER)
+                .aggregateId(memberId)
+                .status(OutboxStatus.PUBLISHED)
+                .publishedAt(publishedTime)
+                .createdAt(publishedTime.minusMinutes(1))  // 발행보다 약간 이전
+                .build();
+    }
+
+    // 단위 테스트용 회원가입 (id 있음 - Publisher 테스트용)
+    public static Outbox memberJoinInitWithId(Long id, Long memberId) {
+        return builder()
+                .withId(id)
+                .eventType(EventType.MEMBER_JOIN)
+                .aggregateType(AggregateType.MEMBER)
+                .aggregateId(memberId)
+                .status(OutboxStatus.INIT)
+                .build();
+    }
+
+    // 재시도 횟수가 많은 SEND_FAIL 상태 (id 있음 - Publisher 테스트용)
+    public static Outbox failedWithRetryWithId(Long id, Long memberId, int retryCount) {
+        return builder()
+                .withId(id)
+                .eventType(EventType.MEMBER_JOIN)
+                .aggregateType(AggregateType.MEMBER)
+                .aggregateId(memberId)
+                .status(OutboxStatus.SEND_FAIL)
+                .retryCount(retryCount)
+                .build();
+    }
+
+    // 오래된 INIT 상태 (id 있음 - Publisher 테스트용)
+    public static Outbox staleInitWithId(Long id, Long memberId, int minutesAgo) {
+        return builder()
+                .withId(id)
+                .eventType(EventType.MEMBER_JOIN)
+                .aggregateType(AggregateType.MEMBER)
+                .aggregateId(memberId)
+                .status(OutboxStatus.INIT)
+                .createdAt(LocalDateTime.now().minusMinutes(minutesAgo))
+                .build();
+    }
+
+    // 지갑 생성 SEND_FAIL 상태 (id 있음 - Publisher 테스트용)
+    public static Outbox walletCreatedFailedWithId(Long id, Long walletId, int retryCount) {
+        return builder()
+                .withId(id)
+                .eventType(EventType.WALLET_CREATED)
+                .aggregateType(AggregateType.WALLET)
+                .aggregateId(walletId)
+                .status(OutboxStatus.SEND_FAIL)
+                .retryCount(retryCount)
+                .build();
+    }
+
     public static class OutboxBuilder {
-        private Long id = null;  // 기본값: null (Repository용)
+        private Long id = null;
         private String eventId = UUID.randomUUID().toString();
         private EventType eventType = EventType.MEMBER_JOIN;
         private AggregateType aggregateType = AggregateType.MEMBER;
@@ -56,6 +154,7 @@ public class OutboxFixture {
         private String payload;
         private OutboxStatus status = OutboxStatus.INIT;
         private Integer retryCount = 0;
+        private LocalDateTime createdAt = null;
         private LocalDateTime publishedAt;
 
         public OutboxBuilder withId(Long id) {
@@ -90,7 +189,7 @@ public class OutboxFixture {
 
         public OutboxBuilder status(OutboxStatus status) {
             this.status = status;
-            if (status == OutboxStatus.PUBLISHED) {
+            if (status == OutboxStatus.PUBLISHED && this.publishedAt == null) {
                 this.publishedAt = LocalDateTime.now();
             }
             return this;
@@ -101,10 +200,24 @@ public class OutboxFixture {
             return this;
         }
 
+        public OutboxBuilder createdAt(LocalDateTime createdAt) {
+            this.createdAt = createdAt;
+            return this;
+        }
+
+        public OutboxBuilder publishedAt(LocalDateTime publishedAt) {
+            this.publishedAt = publishedAt;
+            return this;
+        }
+
         public Outbox build() {
             if (payload == null) {
                 payload = String.format("{\"id\":%d}", aggregateId);
             }
+
+            LocalDateTime finalCreatedAt = createdAt != null
+                    ? createdAt
+                    : LocalDateTime.now();
 
             try {
                 Constructor<Outbox> constructor = Outbox.class.getDeclaredConstructor();
@@ -121,8 +234,8 @@ public class OutboxFixture {
                 setField(outbox, "payload", payload);
                 setField(outbox, "status", status);
                 setField(outbox, "retryCount", retryCount);
-                setField(outbox, "createdAt", LocalDateTime.now());
-                setField(outbox, "updatedAt", LocalDateTime.now());
+                setField(outbox, "createdAt", finalCreatedAt);
+                setField(outbox, "updatedAt", finalCreatedAt);
 
                 if (publishedAt != null) {
                     setField(outbox, "publishedAt", publishedAt);
