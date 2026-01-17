@@ -2,6 +2,7 @@ package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
+import com.ureca.snac.config.AggregateExchangeMapper;
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.outbox.repository.OutboxRepository;
@@ -11,7 +12,6 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,22 +33,24 @@ public class OutboxPublisher {
 
     private static final int BATCH_SIZE = 100;
     private static final int STALE_THRESHOLD_MINUTES = 5;
+    private static final int MAX_RETRY_COUNT = 3;
 
     /**
      * 발행 대기 중인 이벤트를 RabbitMQ로 발행
      * 1초 주기로 실행
      */
     @Scheduled(fixedDelay = 1000)
-    @Transactional(readOnly = true)
     public void publishPendingEvents() {
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(STALE_THRESHOLD_MINUTES);
 
+        // 짧은 조회
         List<Outbox> pendingEvents = outboxRepository.findPendingEvents(
                 OutboxStatus.SEND_FAIL,
                 OutboxStatus.INIT,
                 threshold,
+                MAX_RETRY_COUNT,
                 PageRequest.of(0, BATCH_SIZE)
-        );
+        ); // 커넥션 반환
 
         if (pendingEvents.isEmpty()) {
             return;
@@ -59,6 +61,7 @@ public class OutboxPublisher {
         int successCount = 0;
         int failCount = 0;
 
+        // 메시지 큐 발행 점유 없음
         for (Outbox outbox : pendingEvents) {
             try {
                 publishToRabbitMQ(outbox);
@@ -93,7 +96,7 @@ public class OutboxPublisher {
         EventType eventType = EventType.from(outbox.getEventType());
 
         rabbitTemplate.convertAndSend(
-                aggregateType.getExchange(),
+                AggregateExchangeMapper.getExchange(aggregateType),
                 eventType.getRoutingKey(),
                 outbox.getPayload(),
                 message -> {
@@ -104,6 +107,6 @@ public class OutboxPublisher {
         );
 
         log.debug("[Outbox Scheduler] RabbitMQ 발행 성공. exchange: {}, routingKey: {}, aggregateId: {}",
-                aggregateType.getExchange(), eventType.getRoutingKey(), outbox.getAggregateId());
+                AggregateExchangeMapper.getExchange(aggregateType), eventType.getRoutingKey(), outbox.getAggregateId());
     }
 }

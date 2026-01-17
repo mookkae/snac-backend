@@ -16,8 +16,17 @@ import java.util.UUID;
 @Table(
         name = "outbox",
         indexes = {
-                @Index(name = "idx_status_created", columnList = "status, created_at"),
-                @Index(name = "idx_aggregate", columnList = "aggregate_type, aggregate_id")
+                // INIT 조회 , Archiving 전용
+                @Index(name = "idx_status_created",
+                        columnList = "status, created_at"),
+
+                // SEND_FAIL 재시도 전용
+                @Index(name = "idx_status_retry",
+                        columnList = "status, retry_count"),
+
+                // Aggregate 추적용
+                @Index(name = "idx_aggregate",
+                        columnList = "aggregate_type, aggregate_id")
         }
 )
 @Getter

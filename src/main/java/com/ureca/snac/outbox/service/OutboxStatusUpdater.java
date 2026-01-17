@@ -10,8 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * Outbox 상태 업데이트 전담 컴포넌트
- * AsyncOutboxPublisher와 OutboxPublisher(스케줄러)에서 공통 사용
+ * Outbox 상태 업데이트 컴포넌트
+ * Publisher(스케줄러)에서 공통으로 사용
  * REQUIRES_NEW 전파 속성으로 각 업데이트를 독립적으로 처리
  */
 @Slf4j
@@ -22,15 +22,16 @@ public class OutboxStatusUpdater {
     private final OutboxRepository outboxRepository;
 
     /**
-     * Outbox 상태를 INIT에서 PUBLISHED로 원자적 업데이트
-     * REQUIRES_NEW: 항상 새로운 트랜잭션 생성 (부분 실패 허용)
-     * WHERE 조건으로 INIT 상태만 업데이트하여 중복 발행 방지
+     * Outbox 상태를 PUBLISHED로 원자적 업데이트
+     * INIT 또는 SEND_FAIL 상태만 업데이트
+     * REQUIRES_NEW : 항상 새로운 트랜잭션 생성 (부분 실패 허용)
+     * WHERE 조건으로 중복 발행 방지
      *
      * @param outboxId Outbox ID
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markAsPublished(Long outboxId) {
-        int updated = outboxRepository.markAsPublishedIfInit(
+        int updated = outboxRepository.markAsPublished(
                 outboxId,
                 LocalDateTime.now()
         );
@@ -44,7 +45,8 @@ public class OutboxStatusUpdater {
 
     /**
      * Outbox 상태를 SEND_FAIL로 업데이트하고 재시도 횟수 증가
-     * REQUIRES_NEW: 실패 기록도 독립적으로 커밋
+     * PUBLISHED 상태는 제외
+     * REQUIRES_NEW : 실패 기록도 독립적으로 커밋
      * 쿼리 기반 업데이트로 성능 최적화 및 경쟁 상태 방지
      *
      * @param outboxId Outbox ID
@@ -54,7 +56,7 @@ public class OutboxStatusUpdater {
         int updated = outboxRepository.markAsFailedAndIncrementRetry(outboxId);
 
         if (updated == 0) {
-            log.warn("[Outbox] 발행 실패 기록 실패. outboxId: {} (존재하지 않음)", outboxId);
+            log.warn("[Outbox] 발행 실패 기록 실패. outboxId: {} (존재하지 않거나 이미 발행)", outboxId);
         } else {
             log.warn("[Outbox] 발행 실패 기록 완료. outboxId: {}", outboxId);
         }
