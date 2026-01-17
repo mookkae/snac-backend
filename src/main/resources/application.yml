@@ -208,3 +208,10 @@ shedlock:
 slack:
   webhook:
     url: ${SLACK_WEBHOOK_URL}
+
+outbox:
+  publisher:
+    max-retry: ${OUTBOX_MAX_RETRY}
+    batch-size: ${OUTBOX_BATCH_SIZE}
+    stale-threshold-minutes: ${OUTBOX_STALE_MINIUTES}
+    fixed-delay-ms: ${OUTBOX_FIXED_DELAY}

@@ -130,8 +130,19 @@ cors:
   exposed-headers: [ "Authorization" ]
   allow-credentials: true
 
+outbox:
+  publisher:
+    max-retry: 10
+    batch-size: 100
+    stale-threshold-minutes: 5
+    fixed-delay-ms: 1000
+
 logging:
   level:
-    com.ureca.snac: DEBUG
-    org.springframework.amqp: DEBUG
-    org.testcontainers: INFO
+    org.springframework.amqp: OFF
+    org.springframework.amqp.rabbit: OFF
+    com.rabbitmq.client: OFF
+    org.springframework.messaging: OFF
+    org.springframework.web.SimpLogging: OFF
+    com.ureca.snac.outbox: INFO
+    com.ureca.snac.member: INFO
