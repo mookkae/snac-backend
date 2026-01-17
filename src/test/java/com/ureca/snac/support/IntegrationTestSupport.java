@@ -22,6 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * 통합 테스트 추상 부모 클래스
@@ -45,7 +46,7 @@ public abstract class IntegrationTestSupport {
     static {
         // 도커 이미지 불러오고
         // 1. MySQL
-        mysql = new MySQLContainer<>("mysql:8.0")
+        mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
                 .withDatabaseName("testdb")
                 .withUsername("test")
                 .withPassword("test")
@@ -53,12 +54,12 @@ public abstract class IntegrationTestSupport {
         mysql.start();
 
         // 2. RabbitMQ
-        rabbitMQ = new RabbitMQContainer("rabbitmq:management")
+        rabbitMQ = new RabbitMQContainer(DockerImageName.parse("rabbitmq:management"))
                 .withReuse(true);
         rabbitMQ.start();
 
         // 3. Redis
-        redis = new GenericContainer<>("redis:8.4.0")
+        redis = new GenericContainer<>(DockerImageName.parse("redis:8.4.0"))
                 .withExposedPorts(6379)
                 .withReuse(true);
 
