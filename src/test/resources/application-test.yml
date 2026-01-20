@@ -12,8 +12,8 @@ spring:
       ddl-auto: create-drop  # 스키마 재생성
     properties:
       hibernate:
-        format_sql: true
-    show-sql: true
+        format_sql: false
+    show-sql: false
     open-in-view: false
 
   # RabbitMQ (Testcontainers)
@@ -136,6 +136,16 @@ outbox:
     batch-size: 100
     stale-threshold-minutes: 5
     fixed-delay-ms: 1000
+  dlq-monitor:
+    interval: 1000
+
+rabbitmq:
+  listener:
+    retry:
+      max-attempts: 3
+      initial-interval: 1000
+      multiplier: 2.0
+      max-interval: 10000
 
 logging:
   level:

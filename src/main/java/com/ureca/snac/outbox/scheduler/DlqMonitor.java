@@ -37,7 +37,7 @@ public class DlqMonitor {
     private final Map<String, Integer> lastAlertedCount = new ConcurrentHashMap<>();
 
     // DLQ 모니터링 (1분마다)
-    @Scheduled(fixedDelay = 60000)
+    @Scheduled(fixedDelayString = "${outbox.dlq-monitor.interval}")
     public void monitorDlq() {
         try {
             checkAndAlert(RabbitMQQueue.MEMBER_JOINED_DLQ, "회원가입");
