@@ -4,13 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.asset.repository.AssetHistoryRepository;
 import com.ureca.snac.auth.service.verify.EmailService;
 import com.ureca.snac.auth.service.verify.SnsService;
+import com.ureca.snac.common.notification.SlackNotifier;
 import com.ureca.snac.config.RabbitMQQueue;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.repository.SocialLinkRepository;
 import com.ureca.snac.outbox.repository.OutboxRepository;
+import com.ureca.snac.outbox.scheduler.DlqMonitor;
 import com.ureca.snac.wallet.repository.WalletRepository;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.amqp.core.AmqpAdmin;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -20,33 +23,33 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.containers.RabbitMQContainer;
+import org.testcontainers.mysql.MySQLContainer;
+import org.testcontainers.rabbitmq.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
  * 통합 테스트 추상 부모 클래스
  * <p>
- * Testcontainers 싱글톤 관리 (MYSQL, RABBITMQ, REDIS)
- * 필요한 외부 서비스 Mock 설정
- * 테스트 데이터 삭제 (RabbitMQ + REDIS + DB)
+ * Testcontainers 싱글톤 관리 (MySQL, RabbitMQ, Redis)
+ * 외부 서비스 Mock (Email, SNS, Slack, DLQ Monitor)
  * <p>
- * 수동 제어 static 블록으로 컨테이너 시작
- * 컨테이너 재사용으로 성능 최적화
+ * static 블록으로 컨테이너 수동 제어 및 withReuse 재사용으로 성능 최적화
+ *
+ * @BeforeEach 로 cleanup()보장
  */
 @SpringBootTest
 @ActiveProfiles("test")
 public abstract class IntegrationTestSupport {
 
     // Testcontainers 싱글톤
-    protected static MySQLContainer<?> mysql;
+    protected static MySQLContainer mysql;
     protected static RabbitMQContainer rabbitMQ;
     protected static GenericContainer<?> redis;
 
     static {
         // 도커 이미지 불러오고
         // 1. MySQL
-        mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
+        mysql = new MySQLContainer(DockerImageName.parse("mysql:8.0"))
                 .withDatabaseName("testdb")
                 .withUsername("test")
                 .withPassword("test")
@@ -79,8 +82,7 @@ public abstract class IntegrationTestSupport {
 
         // Redis 설정
         registry.add("spring.data.redis.host", redis::getHost);
-        registry.add("spring.data.redis.port",
-                () -> redis.getMappedPort(6379));
+        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
     }
 
 
@@ -90,6 +92,12 @@ public abstract class IntegrationTestSupport {
 
     @MockitoBean
     protected SnsService snsService;
+
+    @MockitoBean
+    protected SlackNotifier slackNotifier;
+
+    @MockitoBean
+    protected DlqMonitor dlqMonitor;
 
     // 필요한 Repository, 빈
     @Autowired
@@ -111,20 +119,20 @@ public abstract class IntegrationTestSupport {
     protected AmqpAdmin rabbitAdmin;
 
     @Autowired
+    protected RedisTemplate<String, String> redisTemplate;
+
+    @Autowired
     protected ObjectMapper objectMapper;
 
     @Autowired
-    protected RedisTemplate<String, String> redisTemplate;
+    protected RabbitTemplate rabbitTemplate;
 
-    /**
-     * 각 테스트 후 데이터 정리
-     * FK 순서 철저히 지켜서 deleteAllInBatch() 사용
-     */
-    @AfterEach
+    // FK 순서 철저히 지켜서 각 테스트 전 데이터 정리, BeforeEach
+    @BeforeEach
     void cleanup() {
         // 1. RabbitMQ 큐 비우기
         purgeAllQueues();
-        // 메시지 큐 -> 캐시 -> 영구 저장소 (빠른 것 → 느린 것)
+        // 메시지 큐 -> 캐시 -> 영구 저장소 (빠른 거에서 느린 것)
 
         redisTemplate.execute((RedisConnection connection) -> {
             connection.serverCommands().flushDb();
@@ -142,7 +150,10 @@ public abstract class IntegrationTestSupport {
     }
 
     private void purgeAllQueues() {
-        rabbitAdmin.purgeQueue(RabbitMQQueue.MEMBER_JOINED_QUEUE);
-        rabbitAdmin.purgeQueue(RabbitMQQueue.WALLET_CREATED_QUEUE);
+        rabbitAdmin.purgeQueue(RabbitMQQueue.MEMBER_JOINED_QUEUE, false);
+        rabbitAdmin.purgeQueue(RabbitMQQueue.MEMBER_JOINED_DLQ, false);
+
+        rabbitAdmin.purgeQueue(RabbitMQQueue.WALLET_CREATED_QUEUE, false);
+        rabbitAdmin.purgeQueue(RabbitMQQueue.WALLET_CREATED_DLQ, false);
     }
 }
