@@ -12,12 +12,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 /**
  * 회원가입 이벤트 수신 후 지갑 생성
- * DLQ 전략: 재시도 불가능한 에러는 즉시 격리
- * 트랜잭션 최적화: JSON 파싱은 트랜잭션 밖, DB 작업은 WalletService에서 처리
+ * 재시도 안하는 예외는 즉시 DLQ 격리
+ * JSON 파싱은 트랜잭션 바깥, DB는 서비스에서 처리
  */
 @Slf4j
 @Component
@@ -28,12 +29,7 @@ public class WalletCreationListener {
     private final WalletService walletService;
     private final ObjectMapper objectMapper;
 
-    /**
-     * 회원가입 이벤트 처리
-     *
-     * @param payload JSON 페이로드
-     * @throws AmqpRejectAndDontRequeueException 재시도 불가능한 에러 (즉시 DLQ)
-     */
+    // 회원가입 이벤트 처리
     @RabbitListener(queues = RabbitMQQueue.MEMBER_JOINED_QUEUE)
     public void handleMemberJoinEvent(String payload) {
         Long memberId = null;
@@ -56,16 +52,15 @@ public class WalletCreationListener {
             // 재시도 안 하는 예외 (JSON 파싱 실패)
             log.error("[지갑 생성] JSON 파싱 실패. 즉시 DLQ 이동. payload: {}", payload, e);
             throw new AmqpRejectAndDontRequeueException("JSON 파싱 불가", e);
+
+        } catch (DataIntegrityViolationException e) {
+            // 동시성으로 인한 중복 생성
+            log.warn("[지갑 생성] 이미 존재하는 지갑 (동시성) 중복 생성 방지. 회원 ID : {}", memberId);
+            // ACK 정상 처리 한다고 보냄
         }
     }
 
-    /**
-     * 지갑 생성 처리
-     * WalletService.createWallet()에서 트랜잭션 관리
-     *
-     * @param memberId 회원 ID
-     * @throws AmqpRejectAndDontRequeueException 회원 없음 시 (즉시 DLQ)
-     */
+    // 지갑 생성 처리
     private void processWalletCreation(Long memberId) {
         try {
             // 1. Member 조회
