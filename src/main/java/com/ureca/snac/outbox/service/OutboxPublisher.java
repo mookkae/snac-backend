@@ -2,16 +2,16 @@ package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
+import com.ureca.snac.config.AggregateExchangeMapper;
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.outbox.repository.OutboxRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,31 +24,48 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OutboxPublisher {
 
     private final OutboxRepository outboxRepository;
     private final RabbitTemplate rabbitTemplate;
     private final OutboxStatusUpdater statusUpdater;
 
-    private static final int BATCH_SIZE = 100;
-    private static final int STALE_THRESHOLD_MINUTES = 5;
+    private final int batchSize;
+    private final int staleThresholdMinutes;
+    private final int maxRetryCount;
+
+    public OutboxPublisher(
+            OutboxRepository outboxRepository,
+            RabbitTemplate rabbitTemplate,
+            OutboxStatusUpdater statusUpdater,
+            @Value("${outbox.publisher.batch-size}") int batchSize,
+            @Value("${outbox.publisher.stale-threshold-minutes}") int staleThresholdMinutes,
+            @Value("${outbox.publisher.max-retry}") int maxRetryCount
+    ) {
+        this.outboxRepository = outboxRepository;
+        this.rabbitTemplate = rabbitTemplate;
+        this.statusUpdater = statusUpdater;
+        this.batchSize = batchSize;
+        this.staleThresholdMinutes = staleThresholdMinutes;
+        this.maxRetryCount = maxRetryCount;
+    }
 
     /**
      * 발행 대기 중인 이벤트를 RabbitMQ로 발행
      * 1초 주기로 실행
      */
-    @Scheduled(fixedDelay = 1000)
-    @Transactional(readOnly = true)
+    @Scheduled(fixedDelayString = "${outbox.publisher.fixed-delay-ms}")
     public void publishPendingEvents() {
-        LocalDateTime threshold = LocalDateTime.now().minusMinutes(STALE_THRESHOLD_MINUTES);
+        LocalDateTime threshold = LocalDateTime.now().minusMinutes(staleThresholdMinutes);
 
+        // 짧은 조회
         List<Outbox> pendingEvents = outboxRepository.findPendingEvents(
                 OutboxStatus.SEND_FAIL,
                 OutboxStatus.INIT,
                 threshold,
-                PageRequest.of(0, BATCH_SIZE)
-        );
+                maxRetryCount,
+                PageRequest.of(0, batchSize)
+        ); // 커넥션 반환
 
         if (pendingEvents.isEmpty()) {
             return;
@@ -59,6 +76,7 @@ public class OutboxPublisher {
         int successCount = 0;
         int failCount = 0;
 
+        // 메시지 큐 발행 점유 없음
         for (Outbox outbox : pendingEvents) {
             try {
                 publishToRabbitMQ(outbox);
@@ -76,7 +94,7 @@ public class OutboxPublisher {
                 failCount++;
 
                 log.error("[Outbox Scheduler] 발행 실패. outboxId: {}, eventType: {}, retryCount: {}, error: {}",
-                        outbox.getId(), outbox.getEventType(), outbox.getRetryCount(), e.getMessage());
+                        outbox.getId(), outbox.getEventType(), outbox.getRetryCount() + 1, e.getMessage());
             }
         }
 
@@ -93,7 +111,7 @@ public class OutboxPublisher {
         EventType eventType = EventType.from(outbox.getEventType());
 
         rabbitTemplate.convertAndSend(
-                aggregateType.getExchange(),
+                AggregateExchangeMapper.getExchange(aggregateType),
                 eventType.getRoutingKey(),
                 outbox.getPayload(),
                 message -> {
@@ -104,6 +122,6 @@ public class OutboxPublisher {
         );
 
         log.debug("[Outbox Scheduler] RabbitMQ 발행 성공. exchange: {}, routingKey: {}, aggregateId: {}",
-                aggregateType.getExchange(), eventType.getRoutingKey(), outbox.getAggregateId());
+                AggregateExchangeMapper.getExchange(aggregateType), eventType.getRoutingKey(), outbox.getAggregateId());
     }
 }

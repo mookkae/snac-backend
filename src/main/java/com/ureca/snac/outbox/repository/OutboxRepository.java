@@ -22,17 +22,19 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
      * @param failStatus SEND_FAIL 상태
      * @param initStatus INIT 상태
      * @param threshold  기준 시간 (예: 5분 전)
+     * @param maxRetry   최대 재시도 횟수
      * @param pageable   페이징 설정 (Limit 포함)
      * @return 발행 대기 중인 Outbox 목록 (ID 순서)
      */
     @Query("SELECT o FROM Outbox o " +
-            "WHERE o.status = :failStatus " +
+            "WHERE (o.status = :failStatus AND o.retryCount < :maxRetry) " +
             "OR (o.status = :initStatus AND o.createdAt < :threshold) " +
             "ORDER BY o.id ASC")
     List<Outbox> findPendingEvents(
             @Param("failStatus") OutboxStatus failStatus,
             @Param("initStatus") OutboxStatus initStatus,
             @Param("threshold") LocalDateTime threshold,
+            @Param("maxRetry") int maxRetry,
             Pageable pageable
     );
 
@@ -71,8 +73,10 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
 
     /**
      * Outbox 상태를 INIT에서 PUBLISHED로 원자적 업데이트
-     * 경쟁 상태(Race Condition) 방지용
-     * REQUIRES_NEW 전파 속성으로 별도 트랜잭션에서 실행되므로 clearAutomatically 불필요
+     * INIT 또는 SEND_FAIL 상태 경쟁 상태(Race Condition) 방지
+     * <p>
+     * AsyncOutboxPublisher: INIT에서 PUBLISHED
+     * OutboxPublisher (스케줄러): SEND_FAIL, INIT에서 PUBLISHED
      *
      * @param id  Outbox ID
      * @param now 발행 시각
@@ -81,15 +85,16 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
     @Modifying
     @Query("UPDATE Outbox o " +
             "SET o.status = 'PUBLISHED', o.publishedAt = :now " +
-            "WHERE o.id = :id AND o.status = 'INIT'")
-    int markAsPublishedIfInit(
+            "WHERE o.id = :id " +
+            "AND (o.status = 'INIT' OR o.status = 'SEND_FAIL')")
+    int markAsPublished(
             @Param("id") Long id,
             @Param("now") LocalDateTime now
     );
 
     /**
      * Outbox 상태를 SEND_FAIL로 업데이트하고 재시도 횟수 증가
-     * 원자적 업데이트로 경쟁 상태 방지
+     * PUBLISHED 상태 제외조건 달고 원자적 업데이트로 경쟁 상태 방지
      *
      * @param id Outbox ID
      * @return 업데이트된 행 수 (0 또는 1)
@@ -97,6 +102,6 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
     @Modifying
     @Query("UPDATE Outbox o " +
             "SET o.status = 'SEND_FAIL', o.retryCount = o.retryCount + 1 " +
-            "WHERE o.id = :id")
+            "WHERE o.id = :id AND o.status != 'PUBLISHED'")
     int markAsFailedAndIncrementRetry(@Param("id") Long id);
 }

@@ -1,0 +1,158 @@
+spring:
+  application:
+    name: snac-server-test
+
+  # Testcontainers 동적 설정
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # url, username, password는 @DynamicPropertySource로 설정
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop  # 스키마 재생성
+    properties:
+      hibernate:
+        format_sql: false
+    show-sql: false
+    open-in-view: false
+
+  # RabbitMQ (Testcontainers)
+  rabbitmq:
+    # host, port는 @DynamicPropertySource로 설정
+    username: guest
+    password: guest
+
+  # Redis (Testcontainers)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  # 외부 API Mock (더미 변수)
+  ai:
+    azure:
+      openai:
+        api-key: test-key
+        endpoint: http://localhost:9999
+        chat:
+          options:
+            deployment-name: gpt-4o
+
+  mail:
+    host: localhost
+    port: 9999
+    username: test@test.com
+    password: test-password
+
+  cloud:
+    aws:
+      credentials:
+        access-key: test-access-key
+        secret-key: test-secret-key
+      region:
+        static: ap-northeast-2
+
+  security:
+    oauth2:
+      client:
+        registration:
+          naver:
+            client-id: test-naver-id
+            client-secret: test-naver-secret
+            redirect-uri: http://localhost:8080/test
+          google:
+            client-id: test-google-id
+            client-secret: test-google-secret
+            redirect-uri: http://localhost:8080/test
+          kakao:
+            client-id: test-kakao-id
+            client-secret: test-kakao-secret
+            redirect-uri: http://localhost:8080/test
+  jwt:
+    secret: test-jwt-secret-key-for-integration-test-minimum-256-bits
+    access-expiration: 3600000
+    refresh-expiration: 86400000
+    social-expiration: 3600000
+
+# Toss Payments
+payments:
+  toss:
+    url: "http://localhost:9999/"
+    secret-key: test-toss-secret-key
+
+# AES (테스트용 계좌 암호화에서 쓰던거)
+aes:
+  passphrase: "746573742d7061737370687261736531323334"
+  salt: "7465737473616c74"
+
+# S3
+aws:
+  s3:
+    region: ap-northeast-2
+    bucket: test-bucket
+    access-key: test-access-key
+    secret-key: test-secret-key
+    attachment-dir: test/attachments/
+
+# Kakao
+kakao:
+  admin-key: test-kakao-admin-key
+
+# STOMP
+custom:
+  stomp:
+    host: localhost
+    port: 61613
+    client-login: test-client
+    client-passcode: test-pass
+    system-login: test-system
+    system-passcode: test-pass
+
+shedlock:
+  namespace: test-namespace
+
+# Slack
+slack:
+  webhook:
+    url: http://localhost:9999/slack
+
+cors:
+  allowed-origins:
+    - http://localhost:3000
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allowed-headers: [ "*" ]
+  exposed-headers: [ "Authorization" ]
+  allow-credentials: true
+
+outbox:
+  publisher:
+    max-retry: 10
+    batch-size: 100
+    stale-threshold-minutes: 5
+    fixed-delay-ms: 1000
+  dlq-monitor:
+    interval: 1000
+
+rabbitmq:
+  listener:
+    retry:
+      max-attempts: 3
+      initial-interval: 1000
+      multiplier: 2.0
+      max-interval: 10000
+
+logging:
+  level:
+    org.springframework.amqp: OFF
+    org.springframework.amqp.rabbit: OFF
+    com.rabbitmq.client: OFF
+    org.springframework.messaging: OFF
+    org.springframework.web.SimpLogging: OFF
+    com.ureca.snac.outbox: INFO
+    com.ureca.snac.member: INFO

@@ -383,24 +383,24 @@ public class RabbitMQConfig {
         return template;
     }
 
-    @Bean
-    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(ConnectionFactory connectionFactory, Jackson2JsonMessageConverter converter) {
-        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
-        factory.setMessageConverter(converter);
-
-        RetryOperationsInterceptor retryInterceptor = RetryInterceptorBuilder.stateless()
-                .maxAttempts(3)
-                .backOffOptions(
-                        1000,   // 초기 대기시간 1초
-                        2.0,    // multiplier
-                        10000   // 최대 대기시간 10초
-                )
-                .recoverer(new RejectAndDontRequeueRecoverer())  // 마지막엔 requeue 하지 않고 버림
-                .build();
-
-        factory.setAdviceChain(retryInterceptor);
-
-        return factory;
-    }
+//    @Bean
+//    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(ConnectionFactory connectionFactory, Jackson2JsonMessageConverter converter) {
+//        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+//        factory.setConnectionFactory(connectionFactory);
+//        factory.setMessageConverter(converter);
+//
+//        RetryOperationsInterceptor retryInterceptor = RetryInterceptorBuilder.stateless()
+//                .maxAttempts(3)
+//                .backOffOptions(
+//                        1000,   // 초기 대기시간 1초
+//                        2.0,    // multiplier
+//                        10000   // 최대 대기시간 10초
+//                )
+//                .recoverer(new RejectAndDontRequeueRecoverer())  // 마지막엔 requeue 하지 않고 버림
+//                .build();
+//
+//        factory.setAdviceChain(retryInterceptor);
+//
+//        return factory;
+//    }
 }

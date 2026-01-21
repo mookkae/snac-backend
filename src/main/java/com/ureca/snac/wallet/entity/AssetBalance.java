@@ -4,16 +4,13 @@ import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.InvalidAmountException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 /**
- * 자산 잔액을 관리하는 객체
+ * 자산 잔액 및 에스크로 상태 관리
  * <p>
- * 머니와 포인트의 중복 로직을 추상화
+ * 머니/포인트의 입출금 에스크로 캡슐화
  * SRP : 잔액 관리와 에스크로 처리만 담당
- * 불변 및 테스트 독립
  * <p>
  * 사용 가능 잔액과 에스크로 잔액 분리 관리
  * 에스크로 : 거래 중인 금액으로 사용 불가능하지만 소유권은 유지
@@ -21,6 +18,8 @@ import lombok.NoArgsConstructor;
 
 @Embeddable
 @Getter
+@EqualsAndHashCode
+@ToString
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AssetBalance {
 
@@ -109,30 +108,5 @@ public class AssetBalance {
         if (currentBalance < amount) {
             throw new InsufficientBalanceException();
         }
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
-        AssetBalance that = (AssetBalance) o;
-        if (!balance.equals(that.balance)) {
-            return false;
-        }
-        return escrow.equals(that.escrow);
-    }
-
-    @Override
-    public int hashCode() {
-        int result = balance.hashCode();
-        result = 31 * result + escrow.hashCode();
-        return result;
-    }
-
-    @Override
-    public String toString() {
-        return "AssetBalance{" +
-                "balance=" + balance +
-                ", escrow=" + escrow +
-                '}';
     }
 }

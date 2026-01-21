@@ -27,6 +27,13 @@ import java.time.format.DateTimeFormatter;
                 // 특정회원 보너스 지급 여부 확인 멱등성 체크
                 @Index(name = "idx_asset_history_member_detail",
                         columnList = "member_id, transaction_detail")
+        },
+        // 멱등키 유니크 제약
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_asset_history_idempotency_key",
+                        columnNames = {"idempotency_key"}
+                )
         }
 )
 @Getter
@@ -78,6 +85,9 @@ public class AssetHistory extends BaseTimeEntity {
     @Column(name = "tx_year_month", nullable = false, length = 10, updatable = false)
     private String yearMonth; // 비정규화 색인 필드 인덱스 사용
 
+    @Column(name = "idempotency_key", nullable = false, length = 100)
+    private String idempotencyKey;
+
     public static AssetHistory create(
             Member member,
             AssetType assetType,
@@ -87,10 +97,11 @@ public class AssetHistory extends BaseTimeEntity {
             Long amount,
             Long balanceAfter,
             SourceDomain sourceDomain,
-            Long sourceId) {
+            Long sourceId,
+            String idempotencyKey) {
 
-        validateCreateRequest(member, assetType, transactionType, category,
-                transactionDetail, amount, balanceAfter, sourceDomain, sourceId);
+        validateCreateRequest(member, assetType, transactionType, category, transactionDetail,
+                amount, balanceAfter, sourceDomain, sourceId, idempotencyKey);
 
         return AssetHistory.builder()
                 .member(member)
@@ -103,6 +114,7 @@ public class AssetHistory extends BaseTimeEntity {
                 .title(transactionDetail.getDisplayName())
                 .sourceDomain(sourceDomain)
                 .sourceId(sourceId)
+                .idempotencyKey(idempotencyKey)
                 .build();
     }
 
@@ -120,6 +132,11 @@ public class AssetHistory extends BaseTimeEntity {
             Long amount,
             Long balanceAfter
     ) {
+        String idempotencyKey = generateIdempotencyKey(
+                TransactionDetail.SIGNUP_BONUS,
+                member.getId()
+        );
+
         return create(
                 member,
                 AssetType.POINT,
@@ -129,15 +146,27 @@ public class AssetHistory extends BaseTimeEntity {
                 amount,
                 balanceAfter,
                 SourceDomain.EVENT,
-                member.getId()
+                member.getId(),
+                idempotencyKey
         );
+    }
+
+    /**
+     * 멱등키 - 동일 이벤트 중복 처리 방지
+     * <p>
+     * "SIGNUP_BONUS:123" {TransactionDetail}:{MemberId}
+     */
+    private static String generateIdempotencyKey(
+            TransactionDetail detail, Long memberId) {
+        return detail.name() + ":" + memberId;
     }
 
     // 생성 시점의 조건 검증
     private static void validateCreateRequest(
             Member member, AssetType assetType, TransactionType transactionType,
             TransactionCategory category, TransactionDetail transactionDetail,
-            Long amount, Long balanceAfter, SourceDomain sourceDomain, Long sourceId) {
+            Long amount, Long balanceAfter, SourceDomain sourceDomain, Long sourceId,
+            String idempotencyKey) {
 
         if (member == null) {
             throw new InvalidAssetSourceException();
@@ -154,7 +183,10 @@ public class AssetHistory extends BaseTimeEntity {
         if (sourceDomain == null || sourceId == null || sourceId <= 0) {
             throw new InvalidAssetSourceException();
         }
-
+        // 멱등키 검증
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new InvalidAssetSourceException();
+        }
         // 개선 비즈니스 규칙 검증 Enum 에게 위임
         if (!category.isValidFor(assetType)) {
             throw new InvalidAssetCategoryCombinationException();

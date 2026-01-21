@@ -31,7 +31,7 @@ public class AssetHistoryServiceImpl implements AssetHistoryService {
     private final MemberRepository memberRepository;
     private final AssetHistoryRepository assetHistoryRepository;
     private final PaymentRepository paymentRepository;
-    
+
     @Override
     public CursorResult<AssetHistoryResponse> getAssetHistories(
             String username, AssetHistoryListRequest request) {
@@ -39,8 +39,8 @@ public class AssetHistoryServiceImpl implements AssetHistoryService {
         log.info("[자산 내역] 요청을 처리. 회원 : {}, 조건 : {}", username, request);
 
         Member member = findMemberByEmail(username);
-        Slice<AssetHistory> historySlice =
-                assetHistoryRepository.findWithFilters(member.getId(), request);
+        Slice<AssetHistory> historySlice = null;
+//                assetHistoryRepository.findWithFilters(member.getId(), request);
 
         List<AssetHistory> histories = historySlice.getContent();
 

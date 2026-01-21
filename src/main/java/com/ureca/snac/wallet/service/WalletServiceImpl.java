@@ -26,7 +26,7 @@ public class WalletServiceImpl implements WalletService {
     @Override
     @Transactional
     public void createWallet(Member member) {
-        log.info("[지갑생성] createWallet 진입. 회원 ID : {}, 이메일 : {}",
+        log.info("[지갑 생성] createWallet 진입. 회원 ID : {}, 이메일 : {}",
                 member.getId(), member.getEmail());
 
         if (walletRepository.existsByMemberId(member.getId())) {

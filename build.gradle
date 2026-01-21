@@ -78,12 +78,22 @@ dependencies {
     // ----- JDBC Drivers -----
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'com.mysql:mysql-connector-j'
+    
+    runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64'
 
     // ----- Testing -----
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'com.h2database:h2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // testContainers 모듈 버전 관리
+    testImplementation "org.testcontainers:testcontainers:2.0.2"
+    testImplementation "org.testcontainers:testcontainers-mysql:2.0.2"
+    testImplementation "org.testcontainers:testcontainers-rabbitmq:2.0.2"
+
+    // Awaitility (비동기 테스트)
+    testImplementation 'org.awaitility:awaitility:4.3.0'
 
     // s3
     implementation(platform("software.amazon.awssdk:bom:2.25.38"))

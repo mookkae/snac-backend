@@ -208,3 +208,20 @@ shedlock:
 slack:
   webhook:
     url: ${SLACK_WEBHOOK_URL}
+
+outbox:
+  publisher:
+    max-retry: ${OUTBOX_MAX_RETRY}
+    batch-size: ${OUTBOX_BATCH_SIZE}
+    stale-threshold-minutes: ${OUTBOX_STALE_THRESHOLD}
+    fixed-delay-ms: ${OUTBOX_FIXED_DELAY}
+  dlq-monitor:
+    interval: ${OUTBOX_DLQ_MONITOR_INTERVAL}
+
+rabbitmq:
+  listener:
+    retry:
+      max-attempts: ${RABBITMQ_LISTENER_MAX_ATTEMPTS}
+      initial-interval: ${RABBITMQ_LISTENER_INITIAL_INTERVAL}
+      multiplier: ${RABBITMQ_LISTENER_MULTIPLIER}
+      max-interval: ${RABBITMQ_LISTENER_MAX_INTERVAL}
