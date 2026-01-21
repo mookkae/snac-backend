@@ -213,7 +213,7 @@ outbox:
   publisher:
     max-retry: ${OUTBOX_MAX_RETRY}
     batch-size: ${OUTBOX_BATCH_SIZE}
-    stale-threshold-minutes: ${OUTBOX_STALE_MINIUTES}
+    stale-threshold-minutes: ${OUTBOX_STALE_THRESHOLD}
     fixed-delay-ms: ${OUTBOX_FIXED_DELAY}
   dlq-monitor:
     interval: ${OUTBOX_DLQ_MONITOR_INTERVAL}

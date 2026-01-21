@@ -92,18 +92,4 @@ public class Outbox extends BaseTimeEntity {
                 .retryCount(0)
                 .build();
     }
-
-    // 상태 변경 메서드
-    public void markAsPublished() {
-        this.status = OutboxStatus.PUBLISHED;
-        this.publishedAt = LocalDateTime.now();
-    }
-
-    public void markAsFailed() {
-        this.status = OutboxStatus.SEND_FAIL;
-    }
-
-    public void incrementRetryCount() {
-        this.retryCount++;
-    }
 }

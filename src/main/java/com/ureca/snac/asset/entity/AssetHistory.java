@@ -85,7 +85,7 @@ public class AssetHistory extends BaseTimeEntity {
     @Column(name = "tx_year_month", nullable = false, length = 10, updatable = false)
     private String yearMonth; // 비정규화 색인 필드 인덱스 사용
 
-    @Column(name = "idempotency_key", unique = true, nullable = false, length = 100)
+    @Column(name = "idempotency_key", nullable = false, length = 100)
     private String idempotencyKey;
 
     public static AssetHistory create(
