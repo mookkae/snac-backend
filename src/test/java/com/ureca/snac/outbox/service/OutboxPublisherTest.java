@@ -10,8 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
@@ -42,7 +40,7 @@ class OutboxPublisherTest {
     private OutboxStatusUpdater outboxStatusUpdater;
 
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private OutboxMessagePublisher messagePublisher;
 
     private static final int MAX_RETRY_COUNT = 10;
     private static final int BATCH_SIZE = 100;
@@ -52,7 +50,7 @@ class OutboxPublisherTest {
     void setUp() {
         outboxPublisher = new OutboxPublisher(
                 outboxRepository,
-                rabbitTemplate,
+                messagePublisher,
                 outboxStatusUpdater,
                 BATCH_SIZE,
                 STALE_THRESHOLD_MINUTES,
@@ -79,14 +77,9 @@ class OutboxPublisherTest {
         // when
         outboxPublisher.publishPendingEvents();
 
-        // then : RabbitMQ 발행 2회
-        verify(rabbitTemplate, times(2))
-                .convertAndSend(
-                        anyString(),
-                        anyString(),
-                        anyString(),
-                        any(MessagePostProcessor.class)
-                );
+        // then : 메시지 발행 2회
+        verify(messagePublisher, times(2))
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 
         // 발행 상태 업데이트 2회
         verify(outboxStatusUpdater, times(1))
@@ -117,13 +110,8 @@ class OutboxPublisherTest {
         outboxPublisher.publishPendingEvents();
 
         // then
-        verify(rabbitTemplate, times(1))
-                .convertAndSend(
-                        anyString(),
-                        anyString(),
-                        anyString(),
-                        any(MessagePostProcessor.class)
-                );
+        verify(messagePublisher, times(1))
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 
         verify(outboxStatusUpdater, times(1))
                 .markAsPublished(1L);
@@ -141,8 +129,8 @@ class OutboxPublisherTest {
         outboxPublisher.publishPendingEvents();
 
         // then
-        verify(rabbitTemplate, never())
-                .convertAndSend(anyString(), anyString(), anyString(), any(MessagePostProcessor.class));
+        verify(messagePublisher, never())
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 
         verify(outboxStatusUpdater, never())
                 .markAsPublished(anyLong());
@@ -161,15 +149,10 @@ class OutboxPublisherTest {
                 any(), any(), any(), anyInt(), any()
         )).willReturn(List.of(outbox));
 
-        // RabbitMQ 발행 실패
+        // 메시지 발행 실패
         doThrow(new RuntimeException("RabbitMQ 연결 실패"))
-                .when(rabbitTemplate)
-                .convertAndSend(
-                        anyString(),
-                        anyString(),
-                        anyString(),
-                        any(MessagePostProcessor.class)
-                );
+                .when(messagePublisher)
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 
         // when
         outboxPublisher.publishPendingEvents();
@@ -199,13 +182,8 @@ class OutboxPublisherTest {
         doNothing()
                 .doThrow(new RuntimeException("Network error"))
                 .doNothing()
-                .when(rabbitTemplate)
-                .convertAndSend(
-                        anyString(),
-                        anyString(),
-                        anyString(),
-                        any(MessagePostProcessor.class)
-                );
+                .when(messagePublisher)
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 
         // when
         outboxPublisher.publishPendingEvents();
