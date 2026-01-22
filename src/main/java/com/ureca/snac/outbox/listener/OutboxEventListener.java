@@ -74,6 +74,7 @@ public class OutboxEventListener {
                 eventPublisher.publishEvent(
                         new OutboxScheduledEvent(
                                 outbox.getId(),
+                                outbox.getEventId(),
                                 outbox.getEventType(),
                                 outbox.getAggregateType(),
                                 outbox.getAggregateId(),

@@ -8,6 +8,7 @@ package com.ureca.snac.outbox.event;
  */
 public record OutboxScheduledEvent(
         Long outboxId, // Outbox 의 PK
+        String eventId, // 메시지 추적 및 Consumer 측 멱등성 검증용
         String eventType, // 이벤트 타입 식별자로 라우팅 키 결정에 사용
         String aggregateType, // exchange 결정에 사용
         Long aggregateId, // 순서 및 필터링 추적 용도
