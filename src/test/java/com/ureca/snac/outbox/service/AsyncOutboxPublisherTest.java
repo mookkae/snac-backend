@@ -7,8 +7,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -29,7 +27,7 @@ class AsyncOutboxPublisherTest {
     private OutboxStatusUpdater statusUpdater;
 
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private OutboxMessagePublisher messagePublisher;
 
     @Test
     @DisplayName("Hybrid Push : RabbitMQ 발행 성공 -> PUBLISHED 상태 업데이트")
@@ -37,6 +35,7 @@ class AsyncOutboxPublisherTest {
         // given : 회원가입 이벤트
         OutboxScheduledEvent event = new OutboxScheduledEvent(
                 1L,
+                "event-uuid-001",
                 "MemberJoinEvent",
                 "MEMBER",
                 100L,
@@ -46,13 +45,14 @@ class AsyncOutboxPublisherTest {
         // when : 바로 발행
         asyncOutboxPublisher.pushImmediately(event);
 
-        // then : RabbitMQ 발행 (member.exchange -> member.joined)
-        verify(rabbitTemplate, times(1))
-                .convertAndSend(
-                        eq("member.exchange"),
-                        eq("member.joined"),
-                        eq("{\"memberId\":100}"),
-                        any(MessagePostProcessor.class)
+        // then : 메시지 발행 (eventId 포함)
+        verify(messagePublisher, times(1))
+                .publish(
+                        eq("event-uuid-001"),
+                        eq("MEMBER"),
+                        eq("MemberJoinEvent"),
+                        eq(100L),
+                        eq("{\"memberId\":100}")
                 );
 
         // PUBLISHED 상태 업데이트 (원자성)
@@ -65,27 +65,22 @@ class AsyncOutboxPublisherTest {
     }
 
     @Test
-    @DisplayName("Hybrid Push : RabbitMQ 발행 실패시 SEND_FAIL 상태 업데이트" +
-            "스케줄러 즉시 재시도")
+    @DisplayName("Hybrid Push : RabbitMQ 발행 실패시 SEND_FAIL 상태 업데이트 스케줄러 즉시 재시도")
     void pushImmediately_Fail_SchedulerRetry() {
         // given : 지갑 생성 이벤트
         OutboxScheduledEvent event = new OutboxScheduledEvent(
                 2L,
+                "event-uuid-002",
                 "WalletCreatedEvent",
                 "WALLET",
                 200L,
                 "{\"walletId\":200}"
         );
 
-        // RabbitMQ 발행 실패 (네트워크 장애)
+        // 메시지 발행 실패 (네트워크 장애)
         doThrow(new RuntimeException("RabbitMQ 연결 실패"))
-                .when(rabbitTemplate)
-                .convertAndSend(
-                        anyString(),
-                        anyString(),
-                        anyString(),
-                        any(MessagePostProcessor.class)
-                );
+                .when(messagePublisher)
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 
         // when : 즉시 발행 시도
         asyncOutboxPublisher.pushImmediately(event);
@@ -100,11 +95,12 @@ class AsyncOutboxPublisherTest {
     }
 
     @Test
-    @DisplayName("Hybrid Push : Exchange와 RoutingKey 매핑 검증")
-    void pushImmediately_Correcting() {
+    @DisplayName("Hybrid Push : eventId 전달 검증")
+    void pushImmediately_EventIdPropagation() {
         // given : 회원가입 이벤트
         OutboxScheduledEvent memberEvent = new OutboxScheduledEvent(
                 3L,
+                "unique-event-id-123",
                 "MemberJoinEvent",
                 "MEMBER",
                 300L,
@@ -114,17 +110,19 @@ class AsyncOutboxPublisherTest {
         // when
         asyncOutboxPublisher.pushImmediately(memberEvent);
 
-        // then : member.exchange + member.joined
-        verify(rabbitTemplate).convertAndSend(
-                eq("member.exchange"),
-                eq("member.joined"),
-                anyString(),
-                any(MessagePostProcessor.class)
+        // then : eventId가 정확히 전달됨
+        verify(messagePublisher).publish(
+                eq("unique-event-id-123"),
+                eq("MEMBER"),
+                eq("MemberJoinEvent"),
+                eq(300L),
+                eq("{}")
         );
 
         // given : 지갑 생성 이벤트
         OutboxScheduledEvent walletEvent = new OutboxScheduledEvent(
                 4L,
+                "wallet-event-id-456",
                 "WalletCreatedEvent",
                 "WALLET",
                 400L,
@@ -134,12 +132,13 @@ class AsyncOutboxPublisherTest {
         // when
         asyncOutboxPublisher.pushImmediately(walletEvent);
 
-        // then : wallet.exchange + wallet.created
-        verify(rabbitTemplate).convertAndSend(
-                eq("wallet.exchange"),
-                eq("wallet.created"),
-                anyString(),
-                any(MessagePostProcessor.class)
+        // then : eventId가 정확히 전달됨
+        verify(messagePublisher).publish(
+                eq("wallet-event-id-456"),
+                eq("WALLET"),
+                eq("WalletCreatedEvent"),
+                eq(400L),
+                eq("{}")
         );
     }
 
@@ -151,6 +150,7 @@ class AsyncOutboxPublisherTest {
 
         OutboxScheduledEvent event = new OutboxScheduledEvent(
                 5L,
+                "event-uuid-005",
                 "MemberJoinEvent",
                 "MEMBER",
                 999L,
@@ -161,11 +161,12 @@ class AsyncOutboxPublisherTest {
         asyncOutboxPublisher.pushImmediately(event);
 
         // then : payload 원본 그대로
-        verify(rabbitTemplate).convertAndSend(
+        verify(messagePublisher).publish(
                 anyString(),
                 anyString(),
-                eq(payload),
-                any(MessagePostProcessor.class)
+                anyString(),
+                anyLong(),
+                eq(payload)
         );
     }
 }

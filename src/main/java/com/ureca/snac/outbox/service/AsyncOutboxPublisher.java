@@ -1,13 +1,9 @@
 package com.ureca.snac.outbox.service;
 
-import com.ureca.snac.common.event.AggregateType;
-import com.ureca.snac.common.event.EventType;
-import com.ureca.snac.config.AggregateExchangeMapper;
 import com.ureca.snac.config.AsyncConfig;
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -24,7 +20,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class AsyncOutboxPublisher {
 
-    private final RabbitTemplate rabbitTemplate;
+    private final OutboxMessagePublisher messagePublisher;
     private final OutboxStatusUpdater statusUpdater;
 
     /**
@@ -37,11 +33,12 @@ public class AsyncOutboxPublisher {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void pushImmediately(OutboxScheduledEvent event) {
         try {
-            log.debug("[Async Push] 즉시 발행 시작. outboxId: {}, eventType: {}, aggregateId: {}",
-                    event.outboxId(), event.eventType(), event.aggregateId());
+            log.debug("[Async Push] 즉시 발행 시작. outboxId: {}, eventId: {}, eventType: {}",
+                    event.outboxId(), event.eventId(), event.eventType());
 
             // 1. RabbitMQ 발행 (트랜잭션 밖 - 커넥션 점유 없음)
-            publishToRabbitMQ(
+            messagePublisher.publish(
+                    event.eventId(),
                     event.aggregateType(),
                     event.eventType(),
                     event.aggregateId(),
@@ -51,50 +48,16 @@ public class AsyncOutboxPublisher {
             // 2. 상태 업데이트 (짧은 트랜잭션 - 원자적 업데이트)
             statusUpdater.markAsPublished(event.outboxId());
 
-            log.info("[Async Push] 발행 완료. outboxId: {}, aggregateId: {}",
-                    event.outboxId(), event.aggregateId());
+            log.info("[Async Push] 발행 완료. outboxId: {}, eventId: {}, aggregateId: {}",
+                    event.outboxId(), event.eventId(), event.aggregateId());
 
         } catch (Exception e) {
-            log.error("[Async Push] 발행 실패. 재시도 카운트 증가. outboxId: {}, aggregateId: {}, error: {}",
-                    event.outboxId(), event.aggregateId(), e.getMessage());
+            log.error("[Async Push] 발행 실패. 재시도 카운트 증가. outboxId: {}, eventId: {}, error: {}",
+                    event.outboxId(), event.eventId(), e.getMessage());
 
             // 실패 기록 (SEND_FAIL, retryCount++)
             // 스케줄러가 다음 주기에 즉시 재시도
             statusUpdater.markAsFailed(event.outboxId());
         }
-    }
-
-    /**
-     * RabbitMQ로 메시지 발행 (트랜잭션 없음)
-     *
-     * @param aggregateTypeName Aggregate 타입
-     * @param eventTypeName     이벤트 타입
-     * @param aggregateId       Aggregate ID (추적, 필터링용)
-     * @param payload           JSON 페이로드
-     */
-    private void publishToRabbitMQ(
-            String aggregateTypeName,
-            String eventTypeName,
-            Long aggregateId,
-            String payload
-    ) {
-        AggregateType aggregateType = AggregateType.from(aggregateTypeName);
-        EventType eventType = EventType.from(eventTypeName);
-
-        String exchange = AggregateExchangeMapper.getExchange(aggregateType);
-
-        rabbitTemplate.convertAndSend(
-                exchange,
-                eventType.getRoutingKey(),
-                payload,
-                message -> {
-                    message.getMessageProperties().setHeader("eventType", eventTypeName);
-                    message.getMessageProperties().setHeader("aggregateId", aggregateId);
-                    return message;
-                }
-        );
-
-        log.debug("[Async Push] RabbitMQ 발행 성공. exchange: {}, routingKey: {}, aggregateId: {}",
-                exchange, eventType.getRoutingKey(), aggregateId);
     }
 }
