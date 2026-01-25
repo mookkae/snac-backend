@@ -16,6 +16,19 @@ public record PaymentFailureRequest(
 
         @Schema(description = "실패한 주문의 ID")
         @NotBlank
-        String orderId
+        String orderId,
+
+        @Schema(description = "멱등키 (클라이언트 생성 UUID, 중복 요청 방지용)",
+                example = "550e8400-e29b-41d4-a716-446655440000")
+        String idempotencyKey
 ) {
+    /**
+     * 멱등키가 없으면 orderId 기반으로 생성
+     */
+    public String resolveIdempotencyKey() {
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            return idempotencyKey;
+        }
+        return "fail:" + orderId;
+    }
 }

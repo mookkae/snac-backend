@@ -10,14 +10,14 @@ import java.time.OffsetDateTime;
  *
  * @param paymentKey     결제 취소할 고유 키
  * @param canceledAmount 실제로 취소된 금액
- * @param cancelAt       실제로 취소한 시각
+ * @param canceledAt     실제로 취소한 시각
  * @param reason         취소 사유
  */
 @Builder
 public record PaymentCancelResponse(
         String paymentKey,
         Long canceledAmount,
-        OffsetDateTime cancelAt,
+        OffsetDateTime canceledAt,
         String reason
 ) {
 }

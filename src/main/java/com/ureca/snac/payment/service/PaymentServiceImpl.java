@@ -2,8 +2,8 @@ package com.ureca.snac.payment.service;
 
 import com.ureca.snac.infra.PaymentGatewayAdapter;
 import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.dto.PaymentFailureRequest;
 import com.ureca.snac.payment.entity.Payment;
@@ -25,7 +25,7 @@ public class PaymentServiceImpl implements PaymentService {
 
     // 외부 통신은 어댑터를 통해 수행
     private final PaymentGatewayAdapter paymentGatewayAdapter;
-    // 내부 하위 서비스 레이어
+    // 내부 하위 서비스 레이어 (DB 상태 변경 + 보상 처리)
     private final PaymentInternalService paymentInternalService;
     // 잔액검증만 쓸꺼
     private final WalletService walletService;
@@ -63,18 +63,39 @@ public class PaymentServiceImpl implements PaymentService {
         log.info("[결제 취소] 외부 TOSS API 호출 성공");
 
         // 책임 위임 DB 상태 변경은 내부 서비스 계층에다가
-        paymentInternalService.processCancellationInDB(payment, member, cancelResponse);
-        log.info("[결제 취소] 내부 상태 변경 완료");
+        try {
+            paymentInternalService.processCancellationInDB(payment, member, cancelResponse);
+            log.info("[결제 취소] 내부 상태 변경 완료");
+        } catch (Exception e) {
+            // 토스 취소 성공 + DB 실패 = 심각한 불일치 상태
+            // 토스는 취소 완료 상태이므로 DB를 수동으로 맞춰야 함
+            log.error("[결제 취소 보상 필요] 토스 취소 성공 but DB 실패. " +
+                            "수동 복구 필요! paymentKey: {}, memberId: {}, amount: {}, " +
+                            "canceledAt: {}, reason: {}",
+                    paymentKey,
+                    member.getId(),
+                    payment.getAmount(),
+                    cancelResponse.canceledAt(),
+                    reason,
+                    e);
+
+            // DB 상태 복구 시도 (Payment 상태 CANCELED + Outbox 이벤트 발행)
+            paymentInternalService.compensateCancellationFailure(payment, member, cancelResponse, e);
+
+            // 예외를 다시 던져 사용자에게 오류 알림 (하지만 토스 취소는 이미 완료됨)
+            throw e;
+        }
 
         return cancelResponse;
     }
 
     @Override
+    @Transactional
     public void processPaymentFailure(PaymentFailureRequest request) {
         log.warn("[결제 실패 처리] 시작. 주문 ID : {}, 에러 코드 : {}",
                 request.orderId(), request.errorCode());
 
-        Payment payment = paymentRepository.findByOrderId(request.orderId())
+        Payment payment = paymentRepository.findByOrderIdWithMemberForUpdate(request.orderId())
                 .orElseThrow(PaymentNotFoundException::new);
 
         payment.reportFailureAsCancellation(request.errorCode(),
