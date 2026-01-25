@@ -48,8 +48,20 @@ public class MemberFixture {
 
         public MemberBuilder id(Long id) {
             this.id = id;
-            this.email = "user" + id + "@snac.com";
-            this.nickname = "user" + id;
+            if (id != null) {
+                this.email = "user" + id + "@snac.com";
+                this.nickname = "user" + id;
+            }
+            return this;
+        }
+
+        public MemberBuilder email(String email) {
+            this.email = email;
+            return this;
+        }
+
+        public MemberBuilder nickname(String nickname) {
+            this.nickname = nickname;
             return this;
         }
 
