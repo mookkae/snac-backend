@@ -8,8 +8,10 @@ import com.ureca.snac.common.notification.SlackNotifier;
 import com.ureca.snac.config.RabbitMQQueue;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.repository.SocialLinkRepository;
+import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.outbox.repository.OutboxRepository;
 import com.ureca.snac.outbox.scheduler.DlqMonitor;
+import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.repository.WalletRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -116,6 +118,12 @@ public abstract class IntegrationTestSupport {
     protected SocialLinkRepository socialLinkRepository;
 
     @Autowired
+    protected PaymentRepository paymentRepository;
+
+    @Autowired
+    protected MoneyRechargeRepository moneyRechargeRepository;
+
+    @Autowired
     protected AmqpAdmin rabbitAdmin;
 
     @Autowired
@@ -143,6 +151,10 @@ public abstract class IntegrationTestSupport {
 
         assetHistoryRepository.deleteAllInBatch();
 
+        // Payment 관련 (Member FK 존재)
+        moneyRechargeRepository.deleteAllInBatch();
+        paymentRepository.deleteAllInBatch();
+
         walletRepository.deleteAllInBatch();
         outboxRepository.deleteAllInBatch();
 
@@ -155,5 +167,8 @@ public abstract class IntegrationTestSupport {
 
         rabbitAdmin.purgeQueue(RabbitMQQueue.WALLET_CREATED_QUEUE, false);
         rabbitAdmin.purgeQueue(RabbitMQQueue.WALLET_CREATED_DLQ, false);
+
+        rabbitAdmin.purgeQueue(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE, false);
+        rabbitAdmin.purgeQueue(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ, false);
     }
 }
