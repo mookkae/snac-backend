@@ -162,6 +162,7 @@ public enum BaseCode {
     TOSS_INVALID_API_KEY("TOSS_INVALID_API_KEY_500", HttpStatus.INTERNAL_SERVER_ERROR,
             "결제 연동 설정에 문제가 발생했습니다. 관리자에게 문의주세요"),
     TOSS_API_CALL_ERROR("TOSS_API_CALL_ERROR_500", HttpStatus.INTERNAL_SERVER_ERROR, "토스 결제 시스템 연동 중 오류 발생"),
+    TOSS_API_RETRYABLE_ERROR("TOSS_API_RETRYABLE_ERROR_503", HttpStatus.SERVICE_UNAVAILABLE, "토스 결제 시스템이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요"),
 
     // 지갑 - 성공
     WALLET_SUMMARY_SUCCESS("WALLET_SUMMARY_SUCCESS_200", HttpStatus.OK, "내 지갑 요약 정보 조회 성공했습니다"),

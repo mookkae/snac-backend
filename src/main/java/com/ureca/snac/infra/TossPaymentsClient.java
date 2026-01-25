@@ -39,6 +39,8 @@ public class TossPaymentsClient {
 
         return tossPaymentsRestClient.post()
                 .uri("/v1/payments/confirm")
+                .headers(httpHeaders ->
+                        httpHeaders.set("Idempotency-Key", "snac-confirm-" + orderId))
                 .body(request)
                 .retrieve()
                 .body(TossConfirmResponse.class);
