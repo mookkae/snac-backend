@@ -60,6 +60,7 @@ public class MoneyServiceImpl implements MoneyService {
     }
 
     @Override
+    @Transactional
     public MoneyRechargeSuccessResponse processRechargeSuccess(
             String paymentKey, String orderId, Long amount, String email) {
 
@@ -100,7 +101,7 @@ public class MoneyServiceImpl implements MoneyService {
     private Payment findAndValidatePayment(String orderId, Long amount, Member member) {
         log.info("[데이터 정합성 확인] 시작. 주문번호 : {}", orderId);
 
-        Payment payment = paymentRepository.findByOrderIdWithMember(orderId)
+        Payment payment = paymentRepository.findByOrderIdWithMemberForUpdate(orderId)
                 .orElseThrow(PaymentNotFoundException::new);
 
         payment.validateForConfirmation(member, amount);

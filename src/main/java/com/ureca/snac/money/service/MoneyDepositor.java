@@ -1,8 +1,6 @@
 package com.ureca.snac.money.service;
 
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetChangedEventFactory;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.service.AssetHistoryService;
 import com.ureca.snac.infra.dto.response.TossConfirmResponse;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.entity.MoneyRecharge;
@@ -23,14 +21,20 @@ public class MoneyDepositor {
     private final PaymentRepository paymentRepository;
     private final MoneyRechargeRepository moneyRechargeRepository;
     private final WalletService walletService;
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
-    private final AssetChangedEventFactory assetChangedEventFactory;
+    private final AssetHistoryService assetHistoryService;
 
     @Transactional
     public void deposit(Payment payment, Member member, TossConfirmResponse tossConfirmResponse) {
         log.info("[머니 입금 처리] DB 상태 변경 시작. paymentId : {}", payment.getId());
 
-        // 여기서 트랜잭션 미아가 발생해서 영속 상태로 되돌린다.
+        // 이미 처리된 충전 요청인지 확인
+        if (moneyRechargeRepository.existsByPaymentId(payment.getId())) {
+            log.warn("[머니 입금 처리] 이미 처리된 충전 요청. 중복 처리 방지. paymentId: {}", payment.getId());
+            return;
+        }
+
+        // MoneyServiceImpl의 트랜잭션 내에서 실행되므로 payment는 영속 상태일 수 있음.
+        // 다만, 준영속 상태로 전달될 경우를 대비한 방어적 코드로 save() 호출 유지.
         Payment managedPayment = paymentRepository.save(payment);
         log.info("[머니 입금 처리] Payment 객체를 영속 상태로 전환");
 
@@ -48,10 +52,9 @@ public class MoneyDepositor {
         log.info("[머니 입금 처리] 지갑 머니 입금 완료. member Id : {} , 최종 잔액 : {}",
                 member.getId(), balanceAfter);
 
-        AssetChangedEvent event = assetChangedEventFactory.createForRechargeEvent(
-                member.getId(), payment.getId(), recharge.getPaidAmountWon(), balanceAfter
-        );
-        assetHistoryEventPublisher.publish(event);
-        log.info("[머니 입금 처리] 자산 변동 기록 이벤트 발행 완료.");
+        // 동기 직접 기록
+        assetHistoryService.recordMoneyRecharge(
+                member.getId(), managedPayment.getId(), recharge.getPaidAmountWon(), balanceAfter);
+        log.info("[머니 입금 처리] 자산 변동 기록 직접 저장 완료.");
     }
 }

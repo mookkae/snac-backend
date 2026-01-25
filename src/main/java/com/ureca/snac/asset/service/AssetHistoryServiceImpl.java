@@ -52,6 +52,35 @@ public class AssetHistoryServiceImpl implements AssetHistoryService {
         return new CursorResult<>(historyDtos, nextCursor, historySlice.hasNext());
     }
 
+    @Override
+    @Transactional
+    public void recordMoneyRecharge(Long memberId, Long paymentId, Long amount, Long balanceAfter) {
+        log.info("[자산 내역] 머니 충전. memberId: {}, paymentId: {}, amount: {}", memberId, paymentId, amount);
+
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(MemberNotFoundException::new);
+
+        AssetHistory history = AssetHistory.createMoneyRecharge(member, paymentId, amount, balanceAfter);
+        assetHistoryRepository.save(history);
+
+        log.info("[자산 내역] 머니 충전 완료. historyId: {}", history.getId());
+    }
+
+    @Override
+    @Transactional
+    public void recordMoneyRechargeCancel(Long memberId, Long paymentId, Long amount, Long balanceAfter) {
+        log.info("[자산 내역] 머니 충전 취소. memberId: {}, paymentId: {}, amount: {}",
+                memberId, paymentId, amount);
+
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(MemberNotFoundException::new);
+
+        AssetHistory history = AssetHistory.createMoneyRechargeCancel(member, paymentId, amount, balanceAfter);
+        assetHistoryRepository.save(history);
+
+        log.info("[자산 내역] 머니 충전 취소 완료. historyId: {}", history.getId());
+    }
+
     private Map<Long, Payment> getPaymentMapForHistories(List<AssetHistory> histories) {
         List<Long> paymentIds = new ArrayList<>();
         for (AssetHistory history : histories) {
