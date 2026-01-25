@@ -1,7 +1,9 @@
 package com.ureca.snac.payment.repository;
 
 import com.ureca.snac.payment.entity.Payment;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,7 +17,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
      * @param orderId 조회 주문번호
      * @return Payment 객체 optional
      */
-
+    @Query("select p from Payment p join fetch p.member where p.orderId = :orderId")
     Optional<Payment> findByOrderId(String orderId);
 
     /**
@@ -28,7 +30,14 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("select p from Payment p JOIN fetch p.member where p.paymentKey = :paymentKey")
     Optional<Payment> findByPaymentKeyWithMember(@Param("paymentKey") String paymentKey);
 
-    // 최적화
+    /**
+     * 결제 상태 변경 시 동시성 제어를 위한 비관적 락 조회
+     * confirm/failure 처리 시 사용하여 race condition 방지
+     *
+     * @param orderId 주문번호
+     * @return Payment with pessimistic write lock
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p join fetch p.member where p.orderId = :orderId")
-    Optional<Payment> findByOrderIdWithMember(@Param("orderId") String orderId);
+    Optional<Payment> findByOrderIdWithMemberForUpdate(@Param("orderId") String orderId);
 }
