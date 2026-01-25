@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.3'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'jacoco'
 }
 
 group = 'com.ureca'
@@ -78,7 +79,7 @@ dependencies {
     // ----- JDBC Drivers -----
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'com.mysql:mysql-connector-j'
-    
+
     runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64'
 
     // ----- Testing -----
@@ -106,4 +107,83 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+jacoco {
+    toolVersion = "0.8.13"
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it,
+                    // 1. 포함할 도메인만 명시 (Full 대상)
+                    includes: [
+                            "**/com/ureca/snac/asset/**",
+                            "**/com/ureca/snac/infra/**",
+                            "**/com/ureca/snac/money/**",
+                            "**/com/ureca/snac/outbox/**",
+                            "**/com/ureca/snac/payment/**",
+                            "**/com/ureca/snac/settlement/**",
+                            "**/com/ureca/snac/wallet/**"
+                    ],
+                    // 2. 포함된 도메인 안에서도 굳이 안 봐도 되는 것들 쳐내기
+                    excludes: [
+                            "**/dto/**",
+                            "**/entity/**",
+                            "**/event/**",
+                            "**/*Exception*",
+                            "**/*Config*",
+                            "**/*Mapper*"
+                    ]
+            )
+        }))
+    }
+    finalizedBy 'jacocoTestCoverageVerification'
+}
+
+jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            enabled = true
+            element = 'CLASS'
+
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.00 // 담당 도메인은 80% 사수!
+            }
+
+            // 검증에서도 동일한 도메인만 남기기 위해 리포트와 동일한 includes 설정
+            // (excludes를 활용해 반대로 쳐내는 것이 관리하기 편함)
+            includes = [
+                    "**/com/ureca/snac/asset/**",
+                    "**/com/ureca/snac/infra/**",
+                    "**/com/ureca/snac/money/**",
+                    "**/com/ureca/snac/outbox/**",
+                    "**/com/ureca/snac/payment/**",
+                    "**/com/ureca/snac/settlement/**",
+                    "**/com/ureca/snac/wallet/**"
+            ]
+            excludes = [
+                    "**/dto/**",
+                    "**/entity/**",
+                    "**/event/**",
+                    "**/*Exception*",
+                    "**/*Config*",
+                    "**/*Mapper*"
+            ]
+        }
+    }
+}
+
+test {
+    finalizedBy 'jacocoTestReport'
+    // ...
 }

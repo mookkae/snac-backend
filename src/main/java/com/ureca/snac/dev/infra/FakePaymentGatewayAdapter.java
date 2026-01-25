@@ -41,7 +41,7 @@ public class FakePaymentGatewayAdapter implements PaymentGatewayAdapter {
         return PaymentCancelResponse.builder()
                 .paymentKey(paymentKey)
                 .canceledAmount(payment.getAmount())
-                .cancelAt(OffsetDateTime.now())
+                .canceledAt(OffsetDateTime.now())
                 .reason(reason)
                 .build();
     }
