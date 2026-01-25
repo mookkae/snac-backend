@@ -33,11 +33,12 @@ public class OutboxEventListener {
 
     /**
      * Hybrid Push 대상 이벤트 화이트리스트
-     * 속도가 중요한 이벤트만 등록 (회원가입, 지갑 생성 등)
+     * 속도가 중요한 이벤트만 등록 (회원가입, 지갑 생성, 결제 취소 보상 등)
      */
     private static final Set<EventType> HYBRID_PUSH_EVENTS = Set.of(
             EventType.MEMBER_JOIN,
-            EventType.WALLET_CREATED
+            EventType.WALLET_CREATED,
+            EventType.PAYMENT_CANCEL_COMPENSATE
     );
 
     /**

@@ -15,7 +15,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public enum EventType {
     MEMBER_JOIN("MemberJoinEvent", "member.joined"),
-    WALLET_CREATED("WalletCreatedEvent", "wallet.created");
+    WALLET_CREATED("WalletCreatedEvent", "wallet.created"),
+    PAYMENT_CANCEL_COMPENSATE("PaymentCancelCompensateEvent", "payment.cancel.compensate");
 
     private final String typeName;      // "MemberJoinEvent"
     private final String routingKey;    // "member.joined"
