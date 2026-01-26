@@ -152,8 +152,71 @@ public class AssetHistory extends BaseTimeEntity {
     }
 
     /**
+     * 머니 충전 내역 생성 팩토리 메서드 (임시)
+     *
+     * @param member       회원
+     * @param paymentId    결제 ID (출처)
+     * @param amount       충전 금액
+     * @param balanceAfter 충전 후 잔액
+     * @return AssetHistory
+     */
+    public static AssetHistory createMoneyRecharge(
+            Member member,
+            Long paymentId,
+            Long amount,
+            Long balanceAfter
+    ) {
+        String idempotencyKey = "RECHARGE:" + paymentId;
+
+        return AssetHistory.builder()
+                .member(member)
+                .assetType(AssetType.MONEY)
+                .transactionType(TransactionType.DEPOSIT)
+                .category(TransactionCategory.RECHARGE)
+                .transactionDetail(TransactionDetail.SIGNUP_BONUS) // 임시 - 리팩토링 필요
+                .amount(amount)
+                .balanceAfter(balanceAfter)
+                .title(String.format("%,d원 충전", amount))
+                .sourceDomain(SourceDomain.PAYMENT)
+                .sourceId(paymentId)
+                .idempotencyKey(idempotencyKey)
+                .build();
+    }
+
+    /**
+     * 머니 충전 취소 내역 생성 팩토리 메서드 (임시)
+     *
+     * @param member       회원
+     * @param paymentId    결제 ID (출처)
+     * @param amount       취소 금액
+     * @param balanceAfter 취소 후 잔액
+     * @return AssetHistory
+     */
+    public static AssetHistory createMoneyRechargeCancel(
+            Member member,
+            Long paymentId,
+            Long amount,
+            Long balanceAfter
+    ) {
+        String idempotencyKey = "RECHARGE_CANCEL:" + paymentId;
+
+        return AssetHistory.builder()
+                .member(member)
+                .assetType(AssetType.MONEY)
+                .transactionType(TransactionType.WITHDRAWAL)
+                .category(TransactionCategory.CANCEL)
+                .transactionDetail(TransactionDetail.SIGNUP_BONUS) // 임시 - 리팩토링 필요
+                .amount(amount)
+                .balanceAfter(balanceAfter)
+                .title(String.format("%,d원 충전 취소", amount))
+                .sourceDomain(SourceDomain.PAYMENT)
+                .sourceId(paymentId)
+                .idempotencyKey(idempotencyKey)
+                .build();
+    }
+
+    /**
      * 멱등키 - 동일 이벤트 중복 처리 방지
-     * <p>
      * "SIGNUP_BONUS:123" {TransactionDetail}:{MemberId}
      */
     private static String generateIdempotencyKey(
@@ -198,7 +261,9 @@ public class AssetHistory extends BaseTimeEntity {
 
     @PrePersist
     public void setYearMonth() {
-        this.yearMonth = getCreatedAt().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        // createdAt은 AuditingEntityListener가 설정하므로 아직 null일 수 있음
+        // 현재 시간 기준으로 yearMonth 설정
+        this.yearMonth = java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
     }
 
     public String getSignedAmountString() {

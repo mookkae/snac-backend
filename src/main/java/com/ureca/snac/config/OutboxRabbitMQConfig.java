@@ -125,6 +125,11 @@ public class OutboxRabbitMQConfig {
     }
 
     @Bean
+    public DirectExchange paymentExchange() {
+        return new DirectExchange(RabbitMQQueue.PAYMENT_EXCHANGE);
+    }
+
+    @Bean
     public DirectExchange outboxDeadLetterExchange() {
         return new DirectExchange(RabbitMQQueue.OUTBOX_DLX);
     }
@@ -155,7 +160,7 @@ public class OutboxRabbitMQConfig {
                 .with(EventType.MEMBER_JOIN.getRoutingKey());
     }
 
-    // DLQ → DLX 바인딩
+    // DLQ -> DLX 바인딩
     @Bean
     public Binding memberJoinedDlqBinding() {
         return BindingBuilder
@@ -190,12 +195,47 @@ public class OutboxRabbitMQConfig {
                 .with(EventType.WALLET_CREATED.getRoutingKey());
     }
 
-    // DLQ → DLX 바인딩
+    // DLQ -> DLX 바인딩
     @Bean
     public Binding walletCreatedDlqBinding() {
         return BindingBuilder
                 .bind(walletCreatedDlq())
                 .to(outboxDeadLetterExchange())
                 .with(RabbitMQQueue.WALLET_CREATED_DLX_ROUTING_KEY);
+    }
+
+    // --------------------- Payment Domain (보상 트랜잭션) --------------------------
+
+    // 결제 취소 보상 이벤트 큐 (실패 시 DLX로 전송)
+    @Bean
+    public Queue paymentCancelCompensateQueue() {
+        return QueueBuilder.durable(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE)
+                .withArgument("x-dead-letter-exchange", RabbitMQQueue.OUTBOX_DLX)
+                .withArgument("x-dead-letter-routing-key", RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLX_ROUTING_KEY)
+                .build();
+    }
+
+    // 결제 취소 보상 DLQ
+    @Bean
+    public Queue paymentCancelCompensateDlq() {
+        return new Queue(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ, true);
+    }
+
+    // 결제 취소 보상 큐 -> payment.exchange 바인딩
+    @Bean
+    public Binding paymentCancelCompensateBinding() {
+        return BindingBuilder
+                .bind(paymentCancelCompensateQueue())
+                .to(paymentExchange())
+                .with(EventType.PAYMENT_CANCEL_COMPENSATE.getRoutingKey());
+    }
+
+    // DLQ -> DLX 바인딩
+    @Bean
+    public Binding paymentCancelCompensateDlqBinding() {
+        return BindingBuilder
+                .bind(paymentCancelCompensateDlq())
+                .to(outboxDeadLetterExchange())
+                .with(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLX_ROUTING_KEY);
     }
 }

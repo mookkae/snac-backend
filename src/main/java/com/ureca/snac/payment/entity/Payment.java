@@ -35,7 +35,8 @@ public class Payment extends BaseTimeEntity {
     @Column(unique = true)
     private String paymentKey;
 
-    private String method;
+    @Enumerated(EnumType.STRING)
+    private PaymentMethod method;
 
     @Column(nullable = false)
     private Long amount;
@@ -72,25 +73,12 @@ public class Payment extends BaseTimeEntity {
                 .build();
     }
 
-    // 비밀통로
-    public static Payment createForDev(Member member, Long amount) {
-        return Payment.builder()
-                .member(member)
-                .orderId("dev_order_" + UUID.randomUUID())
-                .amount(amount)
-                .method("계좌이체")
-                .status(PaymentStatus.SUCCESS)
-                .paymentKey("dev_payment_key_" + System.currentTimeMillis())
-                .paidAt(OffsetDateTime.now())
-                .build();
-    }
-
     // 핵심 비즈니스 메소드
 
     // 상태 완료
     public void complete(String paymentKey, String method, OffsetDateTime paidAt) {
         this.paymentKey = paymentKey;
-        this.method = method;
+        this.method = PaymentMethod.fromTossMethod(method);
         this.paidAt = paidAt;
         this.status = PaymentStatus.SUCCESS;
     }
@@ -156,20 +144,12 @@ public class Payment extends BaseTimeEntity {
         }
         OffsetDateTime now = OffsetDateTime.now();
 
-        switch (this.method) {
-            case "휴대폰":
-                return this.paidAt.getMonth() != now.getMonth() ||
-                        this.paidAt.getYear() != now.getYear();
-
-            case "가상계좌":
-                // API 취소 불가능
-                return true;
-
-            case "카드":
-            default:
-                // 카드 별도 기한 정책 없음
-                return false;
-        }
+        return switch (this.method) {
+            case PHONE -> this.paidAt.getMonth() != now.getMonth() ||
+                    this.paidAt.getYear() != now.getYear();
+            case VIRTUAL_ACCOUNT -> true;  // API 취소 불가능
+            default -> false;  // 카드 등 별도 기한 정책 없음
+        };
     }
 
     // 내부 상태 조회용 헬퍼 메소드

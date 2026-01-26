@@ -39,7 +39,7 @@ public class TossPaymentsErrorHandler implements ResponseErrorHandler {
         String responseBody = new String(response.getBody().readAllBytes(),
                 StandardCharsets.UTF_8);
 
-        log.error("[외부 API 에러] TOss API 호출 실패 Status : {}, URL : {}, responseBody : {}",
+        log.error("[외부 API 에러] Toss API 호출 실패 Status : {}, URL : {}, responseBody : {}",
                 response.getStatusCode(), url, responseBody);
 
         TossErrorResponse errorResponse;
@@ -52,13 +52,27 @@ public class TossPaymentsErrorHandler implements ResponseErrorHandler {
 
         TossErrorCode errorCode = TossErrorCode.fromCode(errorResponse.code());
 
+        // 재시도 가능한 에러인 경우 별도 예외 발생
+        if (errorCode.isRetryable()) {
+            String detailedErrorMessage = String.format(
+                    "토스 API 일시적 오류 (재시도 가능) : %s (코드 : %s)",
+                    errorResponse.message(),
+                    errorResponse.code()
+            );
+            throw new TossRetryableException(errorCode, detailedErrorMessage);
+        }
+
+        // 재시도 불가능한 에러 처리
         switch (errorCode) {
             case INVALID_CARD_EXPIRATION:
             case INVALID_CARD_NUMBER:
             case REJECT_CARD_COMPANY:
+            case INVALID_STOPPED_CARD:
                 throw new TossInvalidCardInfoException();
 
             case NOT_ENOUGH_BALANCE:
+            case EXCEED_MAX_DAILY_PAYMENT_COUNT:
+            case EXCEED_MAX_PAYMENT_AMOUNT:
                 throw new TossNotEnoughBalanceException();
 
             case INVALID_API_KEY:

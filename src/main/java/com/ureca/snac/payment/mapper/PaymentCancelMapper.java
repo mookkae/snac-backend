@@ -21,18 +21,21 @@ public class PaymentCancelMapper {
      */
     public PaymentCancelResponse toPaymentCancelResponse(TossCancelResponse tossCancelResponse) {
         // Toss 응답이 비정상적이거나 취소내역이 없는 경우
-        if (tossCancelResponse == null || tossCancelResponse.cancels() == null ||
-                tossCancelResponse.cancels().isEmpty()) {
+        if (tossCancelResponse == null || !tossCancelResponse.hasCancels()) {
             throw new ExternalApiException(TOSS_API_CALL_ERROR);
         }
 
-        TossCancelResponse.Cancel firstCancel = tossCancelResponse.cancels().get(0);
+        // 부분 취소 시 여러 건의 취소 내역이 있을 수 있으므로 가장 최근 취소를 사용
+        TossCancelResponse.Cancel latestCancel = tossCancelResponse.getLatestCancel();
+        if (latestCancel == null) {
+            throw new ExternalApiException(TOSS_API_CALL_ERROR);
+        }
 
         return PaymentCancelResponse.builder()
                 .paymentKey(tossCancelResponse.paymentKey())
-                .canceledAmount(firstCancel.cancelAmount())
-                .cancelAt(firstCancel.canceledAt())
-                .reason(firstCancel.cancelReason())
+                .canceledAmount(latestCancel.cancelAmount())
+                .canceledAt(latestCancel.canceledAt())
+                .reason(latestCancel.cancelReason())
                 .build();
     }
 }

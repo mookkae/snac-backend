@@ -6,7 +6,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
 
 /**
  * Toss Payments API 전용 RestClient 설정
@@ -26,9 +29,21 @@ public class TossRestClientConfig {
     }
 
     @Bean
-    public RestClient tossRestClient(TossPaymentsErrorHandler errorHandler) {
+    public TossLoggingInterceptor tossLoggingInterceptor() {
+        return new TossLoggingInterceptor();
+    }
+
+    @Bean
+    public RestClient tossRestClient(TossPaymentsErrorHandler errorHandler,
+                                      TossLoggingInterceptor loggingInterceptor) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+        requestFactory.setReadTimeout(Duration.ofSeconds(30));
+
         return restClientBuilder  // 공통 설정 상속
+                .requestFactory(requestFactory)
                 .baseUrl(tossPaymentProperties.getUrl())
+                .requestInterceptor(loggingInterceptor)  // 로깅 먼저 (요청 시작 시간 측정)
                 .requestInterceptor(new TossAuthInterceptor(tossPaymentProperties.getSecretKey()))
                 .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .defaultStatusHandler(errorHandler)
