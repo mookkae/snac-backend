@@ -2,33 +2,30 @@ package com.ureca.snac.wallet.service;
 
 import com.ureca.snac.asset.entity.TransactionDetail;
 import com.ureca.snac.asset.repository.AssetHistoryRepository;
-import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
-import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
- * SignupBonusService 단위 테스트
- * <p>
  * 최초 회원가입 보너스
  * 중복 지급 방지 (멱등성 보장)
  * 회원이 없거나 지갑이 없거나 하는 예외 상황
  */
+@DisplayName("SignupBonusService 단위 테스트")
 @ExtendWith(MockitoExtension.class)
 class SignupBonusServiceTest {
 
@@ -44,113 +41,81 @@ class SignupBonusServiceTest {
     @Mock
     private AssetHistoryRepository assetHistoryRepository;
 
-    @Test
-    @DisplayName("정상 : 첫 포인트 지급 성공")
-    void grantSignupBonus_Success() {
-        // given
-        Long memberId = 1L;
-        Member member = MemberFixture.createMember(memberId);
+    @Mock
+    private AssetRecorder assetRecorder;
 
-        given(assetHistoryRepository.existsByMemberIdAndTransactionDetail(
-                memberId, TransactionDetail.SIGNUP_BONUS))
-                .willReturn(false);  // 지급 이력 없음
+    private static final Long MEMBER_ID = 1L;
+    private static final Long BONUS_AMOUNT = 1000L;
 
-        given(memberRepository.findById(memberId))
-                .willReturn(Optional.of(member));
+    @Nested
+    @DisplayName("grantSignupBonus 메서드")
+    class GrantSignupBonusTest {
 
-        given(walletService.depositPoint(memberId, 1000L))
-                .willReturn(1000L);  // 잔액: 1000
+        @Test
+        @DisplayName("성공 : 첫 포인트 지급 성공")
+        void grantSignupBonus_success() {
+            // given
+            String idempotencyKey = TransactionDetail.SIGNUP_BONUS.name() + ":" + MEMBER_ID;
 
-        // when
-        signupBonusService.grantSignupBonus(memberId);
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(false);
+            given(memberRepository.existsById(MEMBER_ID)).willReturn(true);
+            given(walletService.depositPoint(MEMBER_ID, BONUS_AMOUNT)).willReturn(BONUS_AMOUNT);
 
-        // then
-        verify(assetHistoryRepository, times(1))
-                .existsByMemberIdAndTransactionDetail(memberId, TransactionDetail.SIGNUP_BONUS);
+            // when
+            signupBonusService.grantSignupBonus(MEMBER_ID);
 
-        verify(walletService, times(1))
-                .depositPoint(memberId, 1000L);
+            // then
+            verify(walletService).depositPoint(MEMBER_ID, BONUS_AMOUNT);
+            verify(assetRecorder).recordSignupBonus(MEMBER_ID, BONUS_AMOUNT, BONUS_AMOUNT);
+        }
 
-        verify(assetHistoryRepository, times(1))
-                .save(any());
-    }
+        @Test
+        @DisplayName("멱등성 : 이미 포인트 지급된 경우 중복 지급 안 함")
+        void grantSignupBonus_idempotent() {
+            // given
+            String idempotencyKey = TransactionDetail.SIGNUP_BONUS.name() + ":" + MEMBER_ID;
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(true);
 
-    @Test
-    @DisplayName("멱등성 : 이미 포인트 지급된 경우 중복 지급 안 함")
-    void grantSignupBonus_Idempotent() {
-        // given
-        Long memberId = 1L;
+            // when
+            signupBonusService.grantSignupBonus(MEMBER_ID);
 
-        given(assetHistoryRepository.existsByMemberIdAndTransactionDetail(
-                memberId, TransactionDetail.SIGNUP_BONUS
-        )).willReturn(true);  // 이미 지급됨
+            // then
+            verify(walletService, never()).depositPoint(anyLong(), anyLong());
+            verify(assetRecorder, never()).recordSignupBonus(anyLong(), anyLong(), anyLong());
+        }
 
-        // when
-        signupBonusService.grantSignupBonus(memberId);
+        @Test
+        @DisplayName("실패 : 회원 없음")
+        void grantSignupBonus_memberNotFound() {
+            // given
+            Long nonExistentMemberId = 999L;
+            String idempotencyKey = TransactionDetail.SIGNUP_BONUS.name() + ":" + nonExistentMemberId;
 
-        // then : 멱등성 체크만 하고 종료
-        verify(assetHistoryRepository, times(1))
-                .existsByMemberIdAndTransactionDetail(memberId, TransactionDetail.SIGNUP_BONUS);
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(false);
+            given(memberRepository.existsById(nonExistentMemberId)).willReturn(false);
 
-        // 회원 조회도 안 함
-        verify(memberRepository, never())
-                .findById(anyLong());
+            // when, then
+            assertThatThrownBy(() -> signupBonusService.grantSignupBonus(nonExistentMemberId))
+                    .isInstanceOf(MemberNotFoundException.class);
 
-        // 포인트 지급도 안 함
-        verify(walletService, never())
-                .depositPoint(anyLong(), anyLong());
+            verify(walletService, never()).depositPoint(anyLong(), anyLong());
+        }
 
-        // 내역 저장도 안 함
-        verify(assetHistoryRepository, never())
-                .save(any());
-    }
+        @Test
+        @DisplayName("실패 : 지갑 없음")
+        void grantSignupBonus_walletNotFound() {
+            // given
+            String idempotencyKey = TransactionDetail.SIGNUP_BONUS.name() + ":" + MEMBER_ID;
 
-    @Test
-    @DisplayName("예외 : 회원 없음")
-    void grantSignupBonus_MemberNotFound() {
-        // given
-        Long memberId = 999L;
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(false);
+            given(memberRepository.existsById(MEMBER_ID)).willReturn(true);
+            given(walletService.depositPoint(MEMBER_ID, BONUS_AMOUNT)).willThrow(new WalletNotFoundException());
 
-        given(assetHistoryRepository.existsByMemberIdAndTransactionDetail(
-                memberId, TransactionDetail.SIGNUP_BONUS
-        )).willReturn(false);
+            // when, then
+            assertThatThrownBy(() -> signupBonusService.grantSignupBonus(MEMBER_ID))
+                    .isInstanceOf(WalletNotFoundException.class);
 
-        given(memberRepository.findById(memberId))
-                .willReturn(Optional.empty());
-
-        // when , then
-        assertThatThrownBy(() -> signupBonusService.grantSignupBonus(memberId))
-                .isInstanceOf(MemberNotFoundException.class);
-
-        verify(walletService, never())
-                .depositPoint(anyLong(), anyLong());
-
-        verify(assetHistoryRepository, never())
-                .save(any());
-    }
-
-    @Test
-    @DisplayName("예외 : 지갑 없음")
-    void grantSignupBonus_WalletNotFound() {
-        // given
-        Long memberId = 1L;
-        Member member = MemberFixture.createMember(memberId);
-
-        given(assetHistoryRepository.existsByMemberIdAndTransactionDetail(
-                memberId, TransactionDetail.SIGNUP_BONUS
-        )).willReturn(false);
-
-        given(memberRepository.findById(memberId))
-                .willReturn(Optional.of(member));
-
-        // WalletService가 WalletNotFoundException 던짐
-        given(walletService.depositPoint(memberId, 1000L))
-                .willThrow(new WalletNotFoundException());
-
-        // when , then
-        assertThatThrownBy(() -> signupBonusService.grantSignupBonus(memberId))
-                .isInstanceOf(WalletNotFoundException.class);
-
-        verify(assetHistoryRepository, never()).save(any());
+            verify(assetRecorder, never()).recordSignupBonus(anyLong(), anyLong(), anyLong());
+        }
     }
 }

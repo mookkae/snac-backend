@@ -3,35 +3,24 @@ package com.ureca.snac.support.fixture;
 import com.ureca.snac.member.Activated;
 import com.ureca.snac.member.Role;
 import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.support.TestReflectionUtils;
 
-import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * Member 공통 테스트 Fixture
- * 모든 도메인에서 재사용 가능
- */
+// Member 공통 테스트 Fixture
 public class MemberFixture {
 
     public static MemberBuilder builder() {
         return new MemberBuilder();
     }
 
-    /**
-     * 기본 회원 (ID: 1L)
-     */
     public static Member createMember() {
         return createMember(1L);
     }
 
-    /**
-     * 특정 ID 회원
-     */
     public static Member createMember(Long memberId) {
-        return builder()
-                .id(memberId)
-                .build();
+        return builder().id(memberId).build();
     }
 
     public static class MemberBuilder {
@@ -80,32 +69,10 @@ public class MemberFixture {
                     .build();
 
             if (id != null) {
-                setField(member, "id", id);
+                TestReflectionUtils.setField(member, "id", id);
             }
 
             return member;
-        }
-
-        private void setField(Object target, String fieldName, Object value) {
-            try {
-                Field field = getField(target.getClass(), fieldName);
-                field.setAccessible(true);
-                field.set(target, value);
-            } catch (Exception e) {
-                throw new RuntimeException("필드 설정 실패: " + fieldName, e);
-            }
-        }
-
-        private Field getField(Class<?> clazz, String fieldName) throws NoSuchFieldException {
-            try {
-                return clazz.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                Class<?> superClass = clazz.getSuperclass();
-                if (superClass != null) {
-                    return getField(superClass, fieldName);
-                }
-                throw e;
-            }
         }
     }
 }

@@ -4,14 +4,11 @@ import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentMethod;
 import com.ureca.snac.payment.entity.PaymentStatus;
+import com.ureca.snac.support.TestReflectionUtils;
 
-import java.lang.reflect.Field;
 import java.time.OffsetDateTime;
 
-/**
- * Payment 테스트 Fixture
- * 리플렉션을 사용하여 운영 코드와 분리
- */
+// Payment 테스트 Fixture
 public class PaymentFixture {
 
     private static final String DEFAULT_ORDER_ID = "snac_order_test_";
@@ -21,15 +18,10 @@ public class PaymentFixture {
         return new PaymentBuilder();
     }
 
-    // PENDING 상태 기본 Payment
     public static Payment createPendingPayment(Member member) {
-        return builder()
-                .member(member)
-                .status(PaymentStatus.PENDING)
-                .build();
+        return builder().member(member).status(PaymentStatus.PENDING).build();
     }
 
-    // SUCCESS 상태 Payment (취소 테스트용)
     public static Payment createSuccessPayment(Member member) {
         return builder()
                 .member(member)
@@ -97,45 +89,23 @@ public class PaymentFixture {
 
             Payment payment = Payment.prepare(member, amount);
 
-            setField(payment, "orderId", orderId);
-            setField(payment, "status", status);
+            TestReflectionUtils.setField(payment, "orderId", orderId);
+            TestReflectionUtils.setField(payment, "status", status);
 
             if (id != null) {
-                setField(payment, "id", id);
+                TestReflectionUtils.setField(payment, "id", id);
             }
             if (method != null) {
-                setField(payment, "method", method);
+                TestReflectionUtils.setField(payment, "method", method);
             }
             if (paymentKey != null) {
-                setField(payment, "paymentKey", paymentKey);
+                TestReflectionUtils.setField(payment, "paymentKey", paymentKey);
             }
             if (paidAt != null) {
-                setField(payment, "paidAt", paidAt);
+                TestReflectionUtils.setField(payment, "paidAt", paidAt);
             }
 
             return payment;
-        }
-
-        private void setField(Object target, String fieldName, Object value) {
-            try {
-                Field field = getField(target.getClass(), fieldName);
-                field.setAccessible(true);
-                field.set(target, value);
-            } catch (Exception e) {
-                throw new RuntimeException("필드 설정 실패: " + fieldName, e);
-            }
-        }
-
-        private Field getField(Class<?> clazz, String fieldName) throws NoSuchFieldException {
-            try {
-                return clazz.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                Class<?> superClass = clazz.getSuperclass();
-                if (superClass != null) {
-                    return getField(superClass, fieldName);
-                }
-                throw e;
-            }
         }
     }
 }
