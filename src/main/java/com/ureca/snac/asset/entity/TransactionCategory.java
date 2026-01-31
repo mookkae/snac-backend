@@ -12,9 +12,10 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum TransactionCategory {
     RECHARGE("충전"),
-    BUY("머니 구매"),
+    RECHARGE_CANCEL("충전 취소"),
+    BUY("상품 구매"),
     SELL("판매"),
-    CANCEL("취소"),
+    TRADE_CANCEL("거래 취소"),
     EVENT("적립"),
     POINT_USAGE("포인트 사용"),
     SETTLEMENT("정산");
@@ -28,9 +29,9 @@ public enum TransactionCategory {
      */
     public boolean isValidFor(AssetType assetType) {
         return switch (assetType) {
-            case MONEY -> this == RECHARGE || this == CANCEL || this == BUY ||
-                    this == SELL || this == SETTLEMENT;
-            case POINT -> this == EVENT || this == POINT_USAGE || this == CANCEL;
+            case MONEY -> this == RECHARGE || this == RECHARGE_CANCEL ||
+                    this == BUY || this == SELL || this == TRADE_CANCEL || this == SETTLEMENT;
+            case POINT -> this == EVENT || this == POINT_USAGE || this == TRADE_CANCEL;
         };
     }
 
@@ -40,8 +41,8 @@ public enum TransactionCategory {
      */
     public boolean isConsistentWith(TransactionType transactionType) {
         return switch (transactionType) {
-            case DEPOSIT -> this == RECHARGE || this == SELL || this == EVENT || this == CANCEL;
-            case WITHDRAWAL -> this == BUY || this == CANCEL || this == POINT_USAGE || this == SETTLEMENT;
+            case DEPOSIT -> this == RECHARGE || this == SELL || this == EVENT || this == TRADE_CANCEL;
+            case WITHDRAWAL -> this == BUY || this == RECHARGE_CANCEL || this == POINT_USAGE || this == SETTLEMENT;
         };
     }
 }

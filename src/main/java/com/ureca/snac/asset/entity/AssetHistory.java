@@ -6,15 +6,10 @@ import com.ureca.snac.member.entity.Member;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-/**
- * 사용자의 자산( 스낵 머니, 포인트 ) 내역 기록 엔티티
- * 읽기 전용 모델로 설계
- * 빠른 조회를 위해 비정규화 적용
- * 생성 시점의 데이터 유효성 검증
- * 무결성 보장
- */
+// 사용자의 자산( 스낵 머니, 포인트 ) 내역 기록 엔티티
 @Entity
 @Table(name = "asset_history",
         indexes = {
@@ -23,10 +18,7 @@ import java.time.format.DateTimeFormatter;
                         columnList = "member_id, asset_type, tx_year_month, created_at DESC"),
                 // 전체 조회 보조인덱스
                 @Index(name = "idx_asset_history_member_asset_created",
-                        columnList = "member_id, asset_type, created_at DESC"),
-                // 특정회원 보너스 지급 여부 확인 멱등성 체크
-                @Index(name = "idx_asset_history_member_detail",
-                        columnList = "member_id, transaction_detail")
+                        columnList = "member_id, asset_type, created_at DESC")
         },
         // 멱등키 유니크 제약
         uniqueConstraints = {
@@ -67,17 +59,14 @@ public class AssetHistory extends BaseTimeEntity {
     private Long amount; // 가격
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "transaction_detail", nullable = false, length = 20)
-    private TransactionDetail transactionDetail;
+    @Column(name = "transaction_detail", length = 30)
+    private TransactionDetail transactionDetail; // 세부적인 이벤트 종류 및 지원금액
 
     @Column(name = "balance_after", nullable = false)
     private Long balanceAfter;
 
     @Column(nullable = false, length = 50)
     private String title; // 거래대상 제목
-
-    @Column(name = "source_domain", nullable = false, length = 20)
-    private SourceDomain sourceDomain; // CHARGE, TRADE, EVENT
 
     @Column(name = "source_id", nullable = false)
     private Long sourceId;
@@ -88,7 +77,229 @@ public class AssetHistory extends BaseTimeEntity {
     @Column(name = "idempotency_key", nullable = false, length = 100)
     private String idempotencyKey;
 
-    public static AssetHistory create(
+    // 멱등키 생성 - 동일 이벤트 중복 처리 방지
+    public static String generateIdempotencyKey(String prefix, Object... ids) {
+        StringBuilder sb = new StringBuilder(prefix);
+        for (Object id : ids) {
+            sb.append(":").append(id);
+        }
+        return sb.toString();
+    }
+
+    // 회원가입 축하 포인트 내역 기록
+    public static AssetHistory createSignupBonus(
+            Member member,
+            Long balanceAfter
+    ) {
+        TransactionDetail detail = TransactionDetail.SIGNUP_BONUS;
+        Long amount = detail.getDefaultAmount();
+
+        return create(
+                member,
+                AssetType.POINT,
+                TransactionType.DEPOSIT,
+                TransactionCategory.EVENT,
+                detail,
+                amount,
+                balanceAfter,
+                detail.getDisplayName(),
+                member.getId(),
+                generateIdempotencyKey(detail.name(), member.getId())
+        );
+    }
+
+    // 머니 충전 내역 기록
+    public static AssetHistory createMoneyRecharge(
+            Member member,
+            Long paymentId,
+            Long amount,
+            Long balanceAfter
+    ) {
+        TransactionCategory category = TransactionCategory.RECHARGE;
+
+        return create(
+                member,
+                AssetType.MONEY,
+                TransactionType.DEPOSIT,
+                category,
+                null,
+                amount,
+                balanceAfter,
+                category.getDisplayName(),
+                paymentId,
+                generateIdempotencyKey(category.name(), paymentId)
+        );
+    }
+
+    // 머니 충전 취소 내역 기록
+    public static AssetHistory createMoneyRechargeCancel(
+            Member member,
+            Long paymentId,
+            Long amount,
+            Long balanceAfter
+    ) {
+        TransactionCategory category = TransactionCategory.RECHARGE_CANCEL;
+
+        return create(
+                member,
+                AssetType.MONEY,
+                TransactionType.WITHDRAWAL,
+                category,
+                null,
+                amount,
+                balanceAfter,
+                category.getDisplayName(),
+                paymentId,
+                generateIdempotencyKey(category.name(), paymentId)
+        );
+    }
+
+    // 거래 구매 내역 기록
+    public static AssetHistory createTradeBuy(
+            Member member,
+            Long tradeId,
+            String title,
+            AssetType assetType,
+            Long amount,
+            Long balanceAfter
+    ) {
+        TransactionCategory category =
+                (assetType == AssetType.MONEY) ? TransactionCategory.BUY : TransactionCategory.POINT_USAGE;
+
+        return create(
+                member,
+                assetType,
+                TransactionType.WITHDRAWAL,
+                category,
+                null,
+                amount,
+                balanceAfter,
+                title,
+                tradeId,
+                generateIdempotencyKey(category.name(), tradeId, assetType.name())
+        );
+    }
+
+    // 거래 판매 수익 내역 기록
+    public static AssetHistory createTradeSell(
+            Member member,
+            Long tradeId,
+            String title,
+            Long amount,
+            Long balanceAfter
+    ) {
+        TransactionCategory category = TransactionCategory.SELL;
+
+        return create(
+                member,
+                AssetType.MONEY,
+                TransactionType.DEPOSIT,
+                category,
+                null,
+                amount,
+                balanceAfter,
+                title,
+                tradeId,
+                generateIdempotencyKey(category.name(), tradeId)
+        );
+    }
+
+    // 거래 취소 환불 내역 기록
+    public static AssetHistory createTradeCancelRefund(
+            Member member,
+            Long tradeId,
+            String title,
+            AssetType assetType,
+            Long amount,
+            Long balanceAfter
+    ) {
+        TransactionCategory category = TransactionCategory.TRADE_CANCEL;
+
+        return create(
+                member,
+                assetType,
+                TransactionType.DEPOSIT,
+                category,
+                null,
+                amount,
+                balanceAfter,
+                title,
+                tradeId,
+                generateIdempotencyKey(category.name(), tradeId, assetType.name())
+        );
+    }
+
+    // 정산 출금 내역 기록
+    public static AssetHistory createSettlement(
+            Member member,
+            Long settlementId,
+            Long amount,
+            Long balanceAfter
+    ) {
+        TransactionCategory category = TransactionCategory.SETTLEMENT;
+
+        return create(
+                member,
+                AssetType.MONEY,
+                TransactionType.WITHDRAWAL,
+                category,
+                null,
+                amount,
+                balanceAfter,
+                category.getDisplayName(),
+                settlementId,
+                generateIdempotencyKey(category.name(), settlementId)
+        );
+    }
+
+    // 거래 완료 보너스 포인트 내역 기록
+    public static AssetHistory createTradeCompletionBonus(
+            Member member,
+            Long tradeId,
+            Long balanceAfter
+    ) {
+        TransactionDetail detail = TransactionDetail.TRADE_COMPLETION_BONUS;
+        Long amount = detail.getDefaultAmount();
+
+        return create(
+                member,
+                AssetType.POINT,
+                TransactionType.DEPOSIT,
+                TransactionCategory.EVENT,
+                detail,
+                amount,
+                balanceAfter,
+                detail.getDisplayName(),
+                tradeId,
+                generateIdempotencyKey(detail.name(), tradeId, member.getId())
+        );
+    }
+
+    // 관리자/개발용 포인트 지급(외부 멱등성 id 주입) 내역 기록
+    public static AssetHistory createAdminPointGrant(
+            Member member,
+            Long grantId,
+            Long amount,
+            Long balanceAfter,
+            String reason
+    ) {
+        TransactionDetail detail = TransactionDetail.ADMIN_POINT_GRANT;
+
+        return create(
+                member,
+                AssetType.POINT,
+                TransactionType.DEPOSIT,
+                TransactionCategory.EVENT,
+                detail,
+                amount,
+                balanceAfter,
+                reason,
+                grantId,
+                generateIdempotencyKey(detail.name(), grantId)
+        );
+    }
+
+    private static AssetHistory create(
             Member member,
             AssetType assetType,
             TransactionType transactionType,
@@ -96,12 +307,12 @@ public class AssetHistory extends BaseTimeEntity {
             TransactionDetail transactionDetail,
             Long amount,
             Long balanceAfter,
-            SourceDomain sourceDomain,
+            String title,
             Long sourceId,
-            String idempotencyKey) {
-
-        validateCreateRequest(member, assetType, transactionType, category, transactionDetail,
-                amount, balanceAfter, sourceDomain, sourceId, idempotencyKey);
+            String idempotencyKey
+    ) {
+        validateCreateRequest(member, assetType, transactionType, category,
+                amount, balanceAfter, sourceId, idempotencyKey);
 
         return AssetHistory.builder()
                 .member(member)
@@ -111,144 +322,34 @@ public class AssetHistory extends BaseTimeEntity {
                 .transactionDetail(transactionDetail)
                 .amount(amount)
                 .balanceAfter(balanceAfter)
-                .title(transactionDetail.getDisplayName())
-                .sourceDomain(sourceDomain)
+                .title(title)
                 .sourceId(sourceId)
                 .idempotencyKey(idempotencyKey)
                 .build();
     }
 
-    /**
-     * 회원가입 축하 포인트 내역 생성 전용 팩토리 메서드
-     * 고정값을 내부에서 처리하여 오류 방지
-     *
-     * @param member       회원
-     * @param amount       포인트 금액
-     * @param balanceAfter 지급 후 잔액
-     * @return AssetHistory
-     */
-    public static AssetHistory createSignupBonus(
-            Member member,
-            Long amount,
-            Long balanceAfter
-    ) {
-        String idempotencyKey = generateIdempotencyKey(
-                TransactionDetail.SIGNUP_BONUS,
-                member.getId()
-        );
-
-        return create(
-                member,
-                AssetType.POINT,
-                TransactionType.DEPOSIT,
-                TransactionCategory.EVENT,
-                TransactionDetail.SIGNUP_BONUS,
-                amount,
-                balanceAfter,
-                SourceDomain.EVENT,
-                member.getId(),
-                idempotencyKey
-        );
-    }
-
-    /**
-     * 머니 충전 내역 생성 팩토리 메서드 (임시)
-     *
-     * @param member       회원
-     * @param paymentId    결제 ID (출처)
-     * @param amount       충전 금액
-     * @param balanceAfter 충전 후 잔액
-     * @return AssetHistory
-     */
-    public static AssetHistory createMoneyRecharge(
-            Member member,
-            Long paymentId,
-            Long amount,
-            Long balanceAfter
-    ) {
-        String idempotencyKey = "RECHARGE:" + paymentId;
-
-        return AssetHistory.builder()
-                .member(member)
-                .assetType(AssetType.MONEY)
-                .transactionType(TransactionType.DEPOSIT)
-                .category(TransactionCategory.RECHARGE)
-                .transactionDetail(TransactionDetail.SIGNUP_BONUS) // 임시 - 리팩토링 필요
-                .amount(amount)
-                .balanceAfter(balanceAfter)
-                .title(String.format("%,d원 충전", amount))
-                .sourceDomain(SourceDomain.PAYMENT)
-                .sourceId(paymentId)
-                .idempotencyKey(idempotencyKey)
-                .build();
-    }
-
-    /**
-     * 머니 충전 취소 내역 생성 팩토리 메서드 (임시)
-     *
-     * @param member       회원
-     * @param paymentId    결제 ID (출처)
-     * @param amount       취소 금액
-     * @param balanceAfter 취소 후 잔액
-     * @return AssetHistory
-     */
-    public static AssetHistory createMoneyRechargeCancel(
-            Member member,
-            Long paymentId,
-            Long amount,
-            Long balanceAfter
-    ) {
-        String idempotencyKey = "RECHARGE_CANCEL:" + paymentId;
-
-        return AssetHistory.builder()
-                .member(member)
-                .assetType(AssetType.MONEY)
-                .transactionType(TransactionType.WITHDRAWAL)
-                .category(TransactionCategory.CANCEL)
-                .transactionDetail(TransactionDetail.SIGNUP_BONUS) // 임시 - 리팩토링 필요
-                .amount(amount)
-                .balanceAfter(balanceAfter)
-                .title(String.format("%,d원 충전 취소", amount))
-                .sourceDomain(SourceDomain.PAYMENT)
-                .sourceId(paymentId)
-                .idempotencyKey(idempotencyKey)
-                .build();
-    }
-
-    /**
-     * 멱등키 - 동일 이벤트 중복 처리 방지
-     * "SIGNUP_BONUS:123" {TransactionDetail}:{MemberId}
-     */
-    private static String generateIdempotencyKey(
-            TransactionDetail detail, Long memberId) {
-        return detail.name() + ":" + memberId;
-    }
-
     // 생성 시점의 조건 검증
     private static void validateCreateRequest(
             Member member, AssetType assetType, TransactionType transactionType,
-            TransactionCategory category, TransactionDetail transactionDetail,
-            Long amount, Long balanceAfter, SourceDomain sourceDomain, Long sourceId,
-            String idempotencyKey) {
+            TransactionCategory category, Long amount, Long balanceAfter,
+            Long sourceId, String idempotencyKey) {
 
         if (member == null) {
-            throw new InvalidAssetSourceException();
+            throw new InvalidAssetSourceException("멤버가 없다.");
         }
-        if (transactionDetail == null) {
-            throw new InvalidAssetSourceException();
-        }
+        // transactionDetail은 이벤트성 거래에만 사용, nullable 허용
         if (amount == null || amount <= 0) {
             throw new InvalidAssetAmountException();
         }
         if (balanceAfter == null || balanceAfter < 0) {
             throw new InvalidAssetBalanceException();
         }
-        if (sourceDomain == null || sourceId == null || sourceId <= 0) {
-            throw new InvalidAssetSourceException();
+        if (sourceId == null || sourceId <= 0) {
+            throw new InvalidAssetSourceException("Source ID 오류");
         }
         // 멱등키 검증
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new InvalidAssetSourceException();
+            throw new InvalidAssetSourceException("멱등키 누락");
         }
         // 개선 비즈니스 규칙 검증 Enum 에게 위임
         if (!category.isValidFor(assetType)) {
@@ -263,11 +364,6 @@ public class AssetHistory extends BaseTimeEntity {
     public void setYearMonth() {
         // createdAt은 AuditingEntityListener가 설정하므로 아직 null일 수 있음
         // 현재 시간 기준으로 yearMonth 설정
-        this.yearMonth = java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-    }
-
-    public String getSignedAmountString() {
-        String sign = this.transactionType == TransactionType.DEPOSIT ? "+" : "-";
-        return sign + String.format("%,d", this.amount);
+        this.yearMonth = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
     }
 }

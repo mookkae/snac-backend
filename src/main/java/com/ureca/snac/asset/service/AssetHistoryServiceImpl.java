@@ -39,8 +39,7 @@ public class AssetHistoryServiceImpl implements AssetHistoryService {
         log.info("[자산 내역] 요청을 처리. 회원 : {}, 조건 : {}", username, request);
 
         Member member = findMemberByEmail(username);
-        Slice<AssetHistory> historySlice = null;
-//                assetHistoryRepository.findWithFilters(member.getId(), request);
+        Slice<AssetHistory> historySlice = assetHistoryRepository.findWithFilters(member.getId(), request);
 
         List<AssetHistory> histories = historySlice.getContent();
 
@@ -50,35 +49,6 @@ public class AssetHistoryServiceImpl implements AssetHistoryService {
         String nextCursor = calculateNextCursor(historySlice);
 
         return new CursorResult<>(historyDtos, nextCursor, historySlice.hasNext());
-    }
-
-    @Override
-    @Transactional
-    public void recordMoneyRecharge(Long memberId, Long paymentId, Long amount, Long balanceAfter) {
-        log.info("[자산 내역] 머니 충전. memberId: {}, paymentId: {}, amount: {}", memberId, paymentId, amount);
-
-        Member member = memberRepository.findById(memberId)
-                .orElseThrow(MemberNotFoundException::new);
-
-        AssetHistory history = AssetHistory.createMoneyRecharge(member, paymentId, amount, balanceAfter);
-        assetHistoryRepository.save(history);
-
-        log.info("[자산 내역] 머니 충전 완료. historyId: {}", history.getId());
-    }
-
-    @Override
-    @Transactional
-    public void recordMoneyRechargeCancel(Long memberId, Long paymentId, Long amount, Long balanceAfter) {
-        log.info("[자산 내역] 머니 충전 취소. memberId: {}, paymentId: {}, amount: {}",
-                memberId, paymentId, amount);
-
-        Member member = memberRepository.findById(memberId)
-                .orElseThrow(MemberNotFoundException::new);
-
-        AssetHistory history = AssetHistory.createMoneyRechargeCancel(member, paymentId, amount, balanceAfter);
-        assetHistoryRepository.save(history);
-
-        log.info("[자산 내역] 머니 충전 취소 완료. historyId: {}", history.getId());
     }
 
     private Map<Long, Payment> getPaymentMapForHistories(List<AssetHistory> histories) {
@@ -117,7 +87,7 @@ public class AssetHistoryServiceImpl implements AssetHistoryService {
     }
 
     private String calculateNextCursor(Slice<AssetHistory> historySlice) {
-        if (!historySlice.hasNext() || historySlice.getContent().isEmpty()) {
+        if (!historySlice.hasNext()) {
             return null;
         }
         AssetHistory lastHistory =

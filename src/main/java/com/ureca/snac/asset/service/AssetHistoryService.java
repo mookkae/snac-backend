@@ -19,27 +19,4 @@ public interface AssetHistoryService {
      * @return 페이지네이션 결과가 담긴 CursorResult
      */
     CursorResult<AssetHistoryResponse> getAssetHistories(String username, AssetHistoryListRequest request);
-
-    /**
-     * 머니 충전 내역 동기 기록 (트랜잭션 내 직접 저장)
-     *
-     * @param memberId     회원 ID
-     * @param paymentId    결제 ID
-     * @param amount       충전 금액
-     * @param balanceAfter 충전 후 잔액
-     */
-    void recordMoneyRecharge(Long memberId, Long paymentId, Long amount, Long balanceAfter);
-
-    /**
-     * 머니 충전 취소 내역 동기 기록 (트랜잭션 내 직접 저장)
-     *
-     * @param memberId     회원 ID
-     * @param paymentId    결제 ID
-     * @param amount       취소 금액
-     * @param balanceAfter 취소 후 잔액
-     */
-    void recordMoneyRechargeCancel(Long memberId, Long paymentId, Long amount, Long balanceAfter);
 }
-
-// LastestBalance랑 Wallet 이랑 고려
-// 그리고 새로운 내부

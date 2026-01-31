@@ -1,6 +1,6 @@
 package com.ureca.snac.payment.service;
 
-import com.ureca.snac.asset.service.AssetHistoryService;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
@@ -27,7 +27,7 @@ public class PaymentInternalService {
 
     private final PaymentRepository paymentRepository;
     private final WalletService walletService;
-    private final AssetHistoryService assetHistoryService;
+    private final AssetRecorder assetRecorder;
     private final ApplicationEventPublisher eventPublisher;
     private final MemberRepository memberRepository;
 
@@ -56,7 +56,7 @@ public class PaymentInternalService {
                 member.getId(), balanceAfter);
 
         // 동기 직접 기록
-        assetHistoryService.recordMoneyRechargeCancel(
+        assetRecorder.recordMoneyRechargeCancel(
                 member.getId(), managedPayment.getId(), managedPayment.getAmount(), balanceAfter);
         log.info("[내부 처리] 자산 변동 기록 직접 저장 완료. 회원 ID : {}", member.getId());
     }
@@ -127,7 +127,7 @@ public class PaymentInternalService {
                 event.memberId(), event.amount(), balanceAfter);
 
         // 기록 저장
-        assetHistoryService.recordMoneyRechargeCancel(
+        assetRecorder.recordMoneyRechargeCancel(
                 member.getId(), event.paymentId(), event.amount(), balanceAfter);
 
         log.info("[결제 취소 보상] AssetHistory 기록 완료. paymentId: {}", event.paymentId());

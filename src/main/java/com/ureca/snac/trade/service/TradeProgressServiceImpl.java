@@ -1,14 +1,13 @@
 package com.ureca.snac.trade.service;
 
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetChangedEventFactory;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.entity.TransactionDetail;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.board.entity.Card;
 import com.ureca.snac.board.exception.CardNotFoundException;
 import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.service.MemberService;
 import com.ureca.snac.trade.dto.TradeDto;
 import com.ureca.snac.trade.entity.Trade;
@@ -31,12 +30,10 @@ public class TradeProgressServiceImpl implements TradeProgressService {
     private final MemberRepository memberRepository;
 
     private final WalletService walletService;
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
-    private final AssetChangedEventFactory assetChangedEventFactory;
+    private final AssetRecorder assetRecorder;
     private final MemberService memberService;
 
     private static final int RATING_SCORE_BONUS = 10;
-    private static final long SELLER_POINT_BONUS = 10L;
 
     @Override
     @Transactional
@@ -75,26 +72,15 @@ public class TradeProgressServiceImpl implements TradeProgressService {
 
         String title = String.format("%s %dGB 판매 대금",
                 trade.getCarrier().name(), trade.getDataAmount());
-        AssetChangedEvent sellEvent = assetChangedEventFactory.createForSell(
-                seller.getId(),
-                trade.getId(),
-                title,
-                amountToDeposit,
-                finalMoneyBalance
-        );
-
-        assetHistoryEventPublisher.publish(sellEvent);
+        assetRecorder.recordTradeSell(
+                seller.getId(), trade.getId(), title, amountToDeposit, finalMoneyBalance);
 
         // 포인트
-        long finalPointBalance = walletService.depositPoint(seller.getId(), SELLER_POINT_BONUS);
+        long amount = TransactionDetail.TRADE_COMPLETION_BONUS.getDefaultAmount();
+        long finalPointBalance = walletService.depositPoint(seller.getId(), amount);
 
-        AssetChangedEvent bonusEvent = assetChangedEventFactory.createForTradeCompletionBonus(
-                seller.getId(),
-                trade.getId(),
-                SELLER_POINT_BONUS,
-                finalPointBalance
-        );
-        assetHistoryEventPublisher.publish(bonusEvent);
+        assetRecorder.recordTradeCompletionBonus(
+                seller.getId(), trade.getId(), amount, finalPointBalance);
 
         memberService.addRatingScore(buyer.getId(), RATING_SCORE_BONUS);
         memberService.addRatingScore(seller.getId(), RATING_SCORE_BONUS);

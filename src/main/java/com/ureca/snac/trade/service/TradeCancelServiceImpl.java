@@ -1,8 +1,7 @@
 package com.ureca.snac.trade.service;
 
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetChangedEventFactory;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.entity.AssetType;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.board.entity.Card;
 import com.ureca.snac.board.entity.constants.CardCategory;
 import com.ureca.snac.board.entity.constants.SellStatus;
@@ -46,8 +45,7 @@ public class TradeCancelServiceImpl implements TradeCancelService {
     private final PenaltyService penaltyService;
 
     private final WalletService walletService;
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
-    private final AssetChangedEventFactory assetChangedEventFactory;
+    private final AssetRecorder assetRecorder;
 
     @Override
     public TradeDto requestCancel(Long tradeId, String userEmail, CancelReason reason) {
@@ -226,34 +224,22 @@ public class TradeCancelServiceImpl implements TradeCancelService {
         long moneyToRefund = trade.getPriceGb() - trade.getPoint();
 
         if (moneyToRefund > 0) {
-            long moneyFinalBalance = walletService.depositMoney(buyer.getId(),
-                    moneyToRefund);
+            long moneyFinalBalance = walletService.depositMoney(buyer.getId(), moneyToRefund);
 
             String title = String.format("%s %dGB 거래 취소",
                     card.getCarrier().name(), card.getDataAmount());
-
-            AssetChangedEvent event = assetChangedEventFactory.createForTradeCancelWithMoney(
-                    buyer.getId(), trade.getId(), title,
-                    moneyToRefund, moneyFinalBalance
-            );
-            assetHistoryEventPublisher.publish(event);
+            assetRecorder.recordTradeCancelRefund(
+                    buyer.getId(), trade.getId(), title, AssetType.MONEY, moneyToRefund, moneyFinalBalance);
         }
 
         long pointToRefund = trade.getPoint();
         if (pointToRefund > 0) {
-            long pointFinalBalance = walletService.depositPoint(
-                    buyer.getId(), pointToRefund
-            );
+            long pointFinalBalance = walletService.depositPoint(buyer.getId(), pointToRefund);
 
             String title = String.format("%s %dGB 포인트 환불",
                     card.getCarrier().name(), card.getDataAmount());
-
-            AssetChangedEvent event =
-                    assetChangedEventFactory.createForTradeCancelWithPoint(
-                            buyer.getId(), trade.getId(), title,
-                            pointToRefund, pointFinalBalance
-                    );
-            assetHistoryEventPublisher.publish(event);
+            assetRecorder.recordTradeCancelRefund(
+                    buyer.getId(), trade.getId(), title, AssetType.POINT, pointToRefund, pointFinalBalance);
         }
     }
 
