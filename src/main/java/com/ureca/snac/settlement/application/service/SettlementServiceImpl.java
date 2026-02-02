@@ -1,8 +1,6 @@
 package com.ureca.snac.settlement.application.service;
 
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetChangedEventFactory;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
@@ -18,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-// 어댑터 (구현체)
 public class SettlementServiceImpl implements SettlementService {
 
     private final SettlementRepository settlementRepository;
@@ -27,9 +24,7 @@ public class SettlementServiceImpl implements SettlementService {
 
     // 검증 내부 서비스 도메인
     private final SettlementValidator settlementValidator;
-    // 팩토리랑 퍼블리셔 주입
-    private final AssetChangedEventFactory assetChangedEventFactory;
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
+    private final AssetRecorder assetRecorder;
 
     /**
      * 트랜 잭션 관리 책임 서비스
@@ -59,14 +54,7 @@ public class SettlementServiceImpl implements SettlementService {
         log.info("[정산 처리] 머니 출금 완료. 회원 ID : {}, 잔액 : {}",
                 member.getId(), balanceAfter);
 
-        AssetChangedEvent event = assetChangedEventFactory.createForSettlement(
-                member.getId(),
-                settlement.getId(),
-                amount,
-                balanceAfter
-        );
-
-        assetHistoryEventPublisher.publish(event);
-        log.info("[정산 처리] 자산 변동 이벤트 발행 완료. 회원 ID : {}", member.getId());
+        assetRecorder.recordSettlement(member.getId(), settlement.getId(), amount, balanceAfter);
+        log.info("[정산 처리] 자산 내역 기록 완료. 회원 ID : {}", member.getId());
     }
 }

@@ -184,10 +184,8 @@ public enum BaseCode {
     ALREADY_FAVORITE_MEMBER("ALREADY_FAVORITE_MEMBER_409", HttpStatus.CONFLICT, "이미 단골로 등록된 사용자 입니다."),
     FAVORITE_RELATION_NOT_FOUND("FAVORITE_RELATION_NOT_FOUND_404", HttpStatus.NOT_FOUND, "해당 단골 관계를 찾을 수 없슨니다"),
 
-    // 거래 내역 - 성공
+    // 자산 내역 - 성공
     ASSET_HISTORY_SUCCESS("ASSET_HISTORY_SUCCESS_200", HttpStatus.OK, "자산 내역 조회 성공했습니다"),
-    // 거래 내역 - 예외
-    ASSET_HISTORY_NOT_FOUND("ASSET_HISTORY_NOT_FOUND_404", HttpStatus.NOT_FOUND, "해당 자산 내역을 차즐 수 없습니다"),
 
     // 정산 - 성공
     SETTLEMENT_SUCCESS("SETTLEMENT_SUCCESS_200", HttpStatus.OK, "정산 요청이 성공되었습니다"),
@@ -195,10 +193,9 @@ public enum BaseCode {
     SETTLEMENT_ACCOUNT_MISMATCH("SETTLEMENT_ACCOUNT_MISMATCH_400", HttpStatus.BAD_REQUEST, "입력하신 계좌번호가 등록된 정보와 일치하지 않습니다"),
     INVALID_SETTLEMENT_REQUEST("INVALID_SETTLEMENT_REQUEST_400", HttpStatus.BAD_REQUEST, "정산 요청 정보가 올바르지 않습니다"),
 
-    // 거래 내역 생성 - 예외
+    // 자산 내역 생성 - 예외
     INVALID_ASSET_AMOUNT("INVALID_ASSET_AMOUNT_400", HttpStatus.BAD_REQUEST, "거래 금액은 0보다 커야 합니다."),
-    INVALID_ASSET_BALANCE("INVALID_ASSET_BALANCE_400", HttpStatus.BAD_REQUEST, "거래 후 잔액은은 0이상 입니다."),
-    INVALID_ASSET_TITLE("INVALID_ASSET_TITLE_400", HttpStatus.BAD_REQUEST, "거래 제목 1자 이상 50자 이하 입니다"),
+    INVALID_ASSET_BALANCE("INVALID_ASSET_BALANCE_400", HttpStatus.BAD_REQUEST, "거래 후 잔액은 0 이상입니다."),
     INVALID_ASSET_SOURCE("INVALID_ASSET_SOURCE_400", HttpStatus.BAD_REQUEST, "거래 출처 정보가 유효하지 않습니다"),
     INCONSISTENT_TRANSACTION_TYPE("INCONSISTENT_TRANSACTION_TYPE_409", HttpStatus.CONFLICT, "거래 타입과 카테고리가 일치하지 않습니다"),
     INVALID_ASSET_CATEGORY_COMBINATION("INVALID_ASSET_CATEGORY_COMBINATION_409", HttpStatus.CONFLICT, "자산 타입과 카테고리의 조합이 유효하지 않습니다"),

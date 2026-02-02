@@ -1,6 +1,6 @@
 package com.ureca.snac.money.service;
 
-import com.ureca.snac.asset.service.AssetHistoryService;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.infra.dto.response.TossConfirmResponse;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.entity.MoneyRecharge;
@@ -21,7 +21,7 @@ public class MoneyDepositor {
     private final PaymentRepository paymentRepository;
     private final MoneyRechargeRepository moneyRechargeRepository;
     private final WalletService walletService;
-    private final AssetHistoryService assetHistoryService;
+    private final AssetRecorder assetRecorder;
 
     @Transactional
     public void deposit(Payment payment, Member member, TossConfirmResponse tossConfirmResponse) {
@@ -53,7 +53,7 @@ public class MoneyDepositor {
                 member.getId(), balanceAfter);
 
         // 동기 직접 기록
-        assetHistoryService.recordMoneyRecharge(
+        assetRecorder.recordMoneyRecharge(
                 member.getId(), managedPayment.getId(), recharge.getPaidAmountWon(), balanceAfter);
         log.info("[머니 입금 처리] 자산 변동 기록 직접 저장 완료.");
     }

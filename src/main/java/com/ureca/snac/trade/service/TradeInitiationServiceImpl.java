@@ -1,8 +1,7 @@
 package com.ureca.snac.trade.service;
 
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetChangedEventFactory;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.entity.AssetType;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.board.entity.Card;
 import com.ureca.snac.board.entity.constants.SellStatus;
 import com.ureca.snac.board.exception.*;
@@ -41,9 +40,7 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
     private final CardRepository cardRepository;
 
     private final WalletService walletService;
-    // 이벤트 기록 저장
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
-    private final AssetChangedEventFactory assetChangedEventFactory;
+    private final AssetRecorder assetRecorder;
 
     @Override
     @Transactional
@@ -98,21 +95,15 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         if (moneyToUse > 0) {
             String title = String.format("%s %dGB 머니 사용",
                     card.getCarrier().name(), card.getDataAmount());
-
-            AssetChangedEvent event = assetChangedEventFactory.createForBuyWithMoney(
-                    member.getId(), trade.getId(), title, moneyToUse, moneyBalanceAfter);
-
-            assetHistoryEventPublisher.publish(event);
+            assetRecorder.recordTradeBuy(
+                    member.getId(), trade.getId(), title, AssetType.MONEY, moneyToUse, moneyBalanceAfter);
         }
 
         if (pointToUse > 0) {
             String title = String.format("%s %dGB 포인트 사용",
                     card.getCarrier().name(), card.getDataAmount());
-
-            AssetChangedEvent event = assetChangedEventFactory.createForBuyWithPoint(
-                    member.getId(), trade.getId(), title, pointToUse, pointBalanceAfter);
-
-            assetHistoryEventPublisher.publish(event);
+            assetRecorder.recordTradeBuy(
+                    member.getId(), trade.getId(), title, AssetType.POINT, pointToUse, pointBalanceAfter);
         }
 
         return trade.getId();
@@ -210,16 +201,14 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         // 3 기록
         if (moneyToUse > 0) {
             String title = String.format("%s %dGB 머니 사용", trade.getCarrier().name(), trade.getDataAmount());
-            AssetChangedEvent event = assetChangedEventFactory
-                    .createForBuyWithMoney(member.getId(), trade.getId(), title, moneyToUse, moneyBalanceAfter);
-            assetHistoryEventPublisher.publish(event);
+            assetRecorder.recordTradeBuy(
+                    member.getId(), trade.getId(), title, AssetType.MONEY, moneyToUse, moneyBalanceAfter);
         }
 
         if (pointToUse > 0) {
             String title = String.format("%s %dGB 포인트 사용", trade.getCarrier().name(), trade.getDataAmount());
-            AssetChangedEvent event = assetChangedEventFactory
-                    .createForBuyWithPoint(member.getId(), trade.getId(), title, pointToUse, pointBalanceAfter);
-            assetHistoryEventPublisher.publish(event);
+            assetRecorder.recordTradeBuy(
+                    member.getId(), trade.getId(), title, AssetType.POINT, pointToUse, pointBalanceAfter);
         }
 
         // 카드 상태 변경 (판매글이면 TRADING, 구매글이면 SELLING)

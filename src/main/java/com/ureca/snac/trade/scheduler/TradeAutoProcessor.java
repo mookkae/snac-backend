@@ -1,8 +1,7 @@
 package com.ureca.snac.trade.scheduler;
 
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetChangedEventFactory;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.entity.AssetType;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.board.entity.Card;
 import com.ureca.snac.board.exception.CardNotFoundException;
 import com.ureca.snac.board.repository.CardRepository;
@@ -39,10 +38,8 @@ public class TradeAutoProcessor {
     private final PenaltyService penaltyService;
 
     private final TradeCancelRepository cancelRepo;
-    // 기록 이벤트
     private final WalletService walletService;
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
-    private final AssetChangedEventFactory assetChangedEventFactory;
+    private final AssetRecorder assetRecorder;
 
     /**
      * 판매자가 48 시간 내 전송 안 한 거래 자동 환불
@@ -62,39 +59,23 @@ public class TradeAutoProcessor {
             long moneyToRefund = trade.getPriceGb() - trade.getPoint();
 
             if (moneyToRefund > 0) {
-                long moneyFinalBalance = walletService.depositMoney(buyer.getId(),
-                        moneyToRefund);
+                long moneyFinalBalance = walletService.depositMoney(buyer.getId(), moneyToRefund);
 
                 String title = String.format("%s %dGB 자동 환불",
                         card.getCarrier().name(), card.getDataAmount());
-
-                AssetChangedEvent event = assetChangedEventFactory.createForTradeCancelWithMoney(
-                        buyer.getId(), trade.getId(), title,
-                        moneyToRefund, moneyFinalBalance
-                );
-                assetHistoryEventPublisher.publish(event);
+                assetRecorder.recordTradeCancelRefund(
+                        buyer.getId(), trade.getId(), title, AssetType.MONEY, moneyToRefund, moneyFinalBalance);
             }
 
             long pointToRefund = trade.getPoint();
             if (pointToRefund > 0) {
-                long pointFinalBalance = walletService.depositPoint(
-                        buyer.getId(), pointToRefund
-                );
+                long pointFinalBalance = walletService.depositPoint(buyer.getId(), pointToRefund);
 
                 String title = String.format("%s %dGB 자동 포인트 환불",
                         card.getCarrier().name(), card.getDataAmount());
-
-                AssetChangedEvent event =
-                        assetChangedEventFactory.createForTradeCancelWithPoint(
-                                buyer.getId(), trade.getId(), title,
-                                pointToRefund, pointFinalBalance
-                        );
-                assetHistoryEventPublisher.publish(event);
+                assetRecorder.recordTradeCancelRefund(
+                        buyer.getId(), trade.getId(), title, AssetType.POINT, pointToRefund, pointFinalBalance);
             }
-//            // 환불
-//            Wallet buyerWallet = tradeSupport.findLockedWallet(trade.getBuyer().getId());
-//            buyerWallet.depositMoney((long) (trade.getPriceGb() - trade.getPoint()) * trade.getDataAmount());
-//            buyerWallet.depositPoint((long) trade.getPoint() * trade.getDataAmount());
 
             // 상태 변경
             trade.cancel(trade.getBuyer());
@@ -121,20 +102,14 @@ public class TradeAutoProcessor {
             Card card = findLockedCard(trade.getCardId());
             Member seller = trade.getSeller();
 
-            // 1. 판매 대금 정상
+            // 1. 판매 대금 정산
             long amountToDeposit = trade.getPriceGb();
             long finalBalance = walletService.depositMoney(seller.getId(), amountToDeposit);
 
             String title = String.format("%s %dGB 자동 정산",
                     card.getCarrier().name(), card.getDataAmount());
-            AssetChangedEvent event = assetChangedEventFactory.createForSell(
-                    seller.getId(), trade.getId(), title, amountToDeposit, finalBalance
-            );
-            assetHistoryEventPublisher.publish(event);
-
-//            // 정산
-//            Wallet sellerWallet = tradeSupport.findLockedWallet(trade.getSeller().getId());
-//            sellerWallet.depositMoney((long) trade.getPriceGb() * trade.getDataAmount());
+            assetRecorder.recordTradeSell(
+                    seller.getId(), trade.getId(), title, amountToDeposit, finalBalance);
 
             // 상태 변경
             trade.changeStatus(TradeStatus.COMPLETED);

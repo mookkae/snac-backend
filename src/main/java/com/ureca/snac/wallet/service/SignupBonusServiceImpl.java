@@ -3,7 +3,7 @@ package com.ureca.snac.wallet.service;
 import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.TransactionDetail;
 import com.ureca.snac.asset.repository.AssetHistoryRepository;
-import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,60 +24,41 @@ public class SignupBonusServiceImpl implements SignupBonusService {
     private final MemberRepository memberRepository;
     private final WalletService walletService;
     private final AssetHistoryRepository assetHistoryRepository;
-
-    private static final long SIGNUP_BONUS_AMOUNT = 1000L;
+    private final AssetRecorder assetRecorder;
 
     @Override
     @Transactional
     public void grantSignupBonus(Long memberId) {
         log.info("[회원가입 포인트] 지급 시작. 회원 ID: {}", memberId);
 
-        // 1. 멱등성 체크
+        // 1. 멱등성 체크 (포인트 지급 전 확인)
         if (isAlreadyGranted(memberId)) {
             log.info("[회원가입 포인트] 이미 지급됨. 중복 방지. 회원 ID: {}", memberId);
             return;
         }
 
-        // 2. Member 조회
-        Member member = findMember(memberId);
+        // 2. Member 존재 확인
+        if (!memberRepository.existsById(memberId)) {
+            log.error("[회원가입 포인트] 회원 조회 실패. 회원 ID: {}", memberId);
+            throw new MemberNotFoundException();
+        }
 
         // 3. 포인트 지급
-        Long balanceAfter = walletService.depositPoint(memberId, SIGNUP_BONUS_AMOUNT);
+        long amount = TransactionDetail.SIGNUP_BONUS.getDefaultAmount();
+        Long balanceAfter = walletService.depositPoint(memberId, amount);
 
         log.info("[회원가입 포인트] 지급 완료. 회원 ID: {}, 금액: {}, 잔액: {}",
-                memberId, SIGNUP_BONUS_AMOUNT, balanceAfter);
+                memberId, amount, balanceAfter);
 
-        // 4. AssetHistory 기록
-        recordHistory(member, balanceAfter);
+        // 4. AssetHistory 기록 (AssetRecorder에서 멱등성 처리)
+        assetRecorder.recordSignupBonus(memberId, amount, balanceAfter);
 
         log.info("[회원가입 포인트] 내역 기록 완료. 회원 ID: {}", memberId);
     }
 
     // 회원가입 포인트 지급 여부 확인
     private boolean isAlreadyGranted(Long memberId) {
-        return assetHistoryRepository.existsByMemberIdAndTransactionDetail(
-                memberId,
-                TransactionDetail.SIGNUP_BONUS
-        );
-    }
-
-    // 회원 조회
-    private Member findMember(Long memberId) {
-        return memberRepository.findById(memberId).orElseThrow(
-                () -> {
-                    log.error("[회원가입 포인트] 회원 조회 실패. 회원 ID: {}", memberId);
-                    return new MemberNotFoundException();
-                }
-        );
-    }
-
-    // AssetHistory 기록
-    private void recordHistory(Member member, Long balanceAfter) {
-        AssetHistory history = AssetHistory.createSignupBonus(
-                member,
-                SIGNUP_BONUS_AMOUNT,
-                balanceAfter
-        );
-        assetHistoryRepository.save(history);
+        String idempotencyKey = AssetHistory.generateIdempotencyKey(TransactionDetail.SIGNUP_BONUS.name(), memberId);
+        return assetHistoryRepository.existsByIdempotencyKey(idempotencyKey);
     }
 }

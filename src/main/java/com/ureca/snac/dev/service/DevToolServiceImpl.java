@@ -1,11 +1,9 @@
 package com.ureca.snac.dev.service;
 
+import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.AssetType;
-import com.ureca.snac.asset.entity.SourceDomain;
-import com.ureca.snac.asset.entity.TransactionCategory;
-import com.ureca.snac.asset.entity.TransactionType;
-import com.ureca.snac.asset.event.AssetChangedEvent;
-import com.ureca.snac.asset.service.AssetHistoryEventPublisher;
+import com.ureca.snac.asset.repository.AssetHistoryRepository;
+import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.dev.dto.DevCancelRechargeRequest;
 import com.ureca.snac.dev.dto.DevForceTradeCompleteRequest;
 import com.ureca.snac.dev.dto.DevPointGrantRequest;
@@ -37,7 +35,8 @@ public class DevToolServiceImpl implements DevToolService {
     private final DevDataSupport devDataSupport;
     private final WalletService walletService;
     private final PaymentRepository paymentRepository;
-    private final AssetHistoryEventPublisher assetHistoryEventPublisher;
+    private final AssetRecorder assetRecorder;
+    private final AssetHistoryRepository assetHistoryRepository;
     private final PaymentGatewayAdapter paymentGatewayAdapter;
 
     public DevToolServiceImpl(
@@ -47,7 +46,8 @@ public class DevToolServiceImpl implements DevToolService {
             DevDataSupport devDataSupport,
             WalletService walletService,
             PaymentRepository paymentRepository,
-            AssetHistoryEventPublisher assetHistoryEventPublisher,
+            AssetRecorder assetRecorder,
+            AssetHistoryRepository assetHistoryRepository,
             @Qualifier("fake")
             PaymentGatewayAdapter paymentGatewayAdapter) {
 
@@ -57,7 +57,8 @@ public class DevToolServiceImpl implements DevToolService {
         this.devDataSupport = devDataSupport;
         this.walletService = walletService;
         this.paymentRepository = paymentRepository;
-        this.assetHistoryEventPublisher = assetHistoryEventPublisher;
+        this.assetRecorder = assetRecorder;
+        this.assetHistoryRepository = assetHistoryRepository;
         this.paymentGatewayAdapter = paymentGatewayAdapter;
     }
 
@@ -97,17 +98,8 @@ public class DevToolServiceImpl implements DevToolService {
         walletService.depositPoint(member.getId(), request.amount());
         long balanceAfter = walletService.getPointBalance(member.getId());
 
-        publishEvent(
-                member.getId(),
-                AssetType.POINT,
-                TransactionType.DEPOSIT,
-                TransactionCategory.EVENT,
-                request.amount(),
-                balanceAfter,
-                request.reason(),
-                SourceDomain.EVENT,
-                member.getId()
-        );
+        // 개발용 포인트 지급은 커스텀 사유를 허용하므로 직접 저장
+        saveDevPointGrant(member, request.amount(), balanceAfter, request.reason());
 
         log.info("[개발용 포인트 지급] 완료.");
     }
@@ -148,47 +140,36 @@ public class DevToolServiceImpl implements DevToolService {
                 walletService.depositMoney(ctx.seller().getId(), request.moneyAmountToUse()) :
                 walletService.getMoneyBalance(ctx.seller().getId());
 
-        publishTradeEvents(ctx, request.moneyAmountToUse(), request.pointAmountToUse(), sellerMoneyBalanceAfter);
+        recordTradeAssets(ctx, request.moneyAmountToUse(), request.pointAmountToUse(), sellerMoneyBalanceAfter);
 
         log.info("[개발용 거래 완료] 완료. 생성된 Trade ID : {}", ctx.trade().getId());
 
         return ctx.trade().getId();
     }
 
-    private void publishTradeEvents(DevDataSupport.TradeCompletionContext ctx, long moneyUsed,
-                                    long pointUsed, long sellerMoneyBalance) {
+    private void recordTradeAssets(DevDataSupport.TradeCompletionContext ctx, long moneyUsed,
+                                   long pointUsed, long sellerMoneyBalance) {
 
-        String generateTitle = String.format("%s %dGB", ctx.card().getCarrier().name(), ctx.card().getDataAmount());
+        String title = String.format("%s %dGB", ctx.card().getCarrier().name(), ctx.card().getDataAmount());
 
         long buyerMoneyBalance = walletService.getMoneyBalance(ctx.buyer().getId());
         long buyerPointBalance = walletService.getPointBalance(ctx.buyer().getId());
 
         if (moneyUsed > 0) {
-            publishEvent(ctx.buyer().getId(), AssetType.MONEY, TransactionType.WITHDRAWAL, TransactionCategory.BUY, moneyUsed,
-                    buyerMoneyBalance, generateTitle + " 머니 사용 ", SourceDomain.TRADE, ctx.trade().getId());
-            publishEvent(ctx.seller().getId(), AssetType.MONEY, TransactionType.DEPOSIT, TransactionCategory.SELL, moneyUsed,
-                    sellerMoneyBalance, generateTitle + " 판매 대금 ", SourceDomain.TRADE, ctx.trade().getId());
+            assetRecorder.recordTradeBuy(ctx.buyer().getId(), ctx.trade().getId(),
+                    title + " 머니 사용", AssetType.MONEY, moneyUsed, buyerMoneyBalance);
+            assetRecorder.recordTradeSell(ctx.seller().getId(), ctx.trade().getId(),
+                    title + " 판매 대금", moneyUsed, sellerMoneyBalance);
         }
         if (pointUsed > 0) {
-            publishEvent(ctx.buyer().getId(), AssetType.POINT, TransactionType.WITHDRAWAL, TransactionCategory.POINT_USAGE, pointUsed,
-                    buyerPointBalance, generateTitle + " 포인트 사용 ", SourceDomain.TRADE, ctx.trade().getId());
+            assetRecorder.recordTradeBuy(ctx.buyer().getId(), ctx.trade().getId(),
+                    title + " 포인트 사용", AssetType.POINT, pointUsed, buyerPointBalance);
         }
     }
 
-    private void publishEvent(Long memberId, AssetType assetType, TransactionType transactionType,
-                              TransactionCategory category, Long amount, Long balanceAfter,
-                              String title, SourceDomain domain, Long sourceId) {
-        assetHistoryEventPublisher.publish(AssetChangedEvent.builder()
-                .memberId(memberId)
-                .assetType(assetType)
-                .transactionType(transactionType)
-                .category(category)
-                .amount(amount)
-                .balanceAfter(balanceAfter)
-                .title(title)
-                .sourceDomain(domain)
-                .sourceId(sourceId)
-                .build()
-        );
+    private void saveDevPointGrant(Member member, Long amount, Long balanceAfter, String reason) {
+        Long grantId = System.nanoTime();  // 고유 ID 생성 (개발용)
+        AssetHistory history = AssetHistory.createAdminPointGrant(member, grantId, amount, balanceAfter, reason);
+        assetHistoryRepository.save(history);
     }
 }
