@@ -63,12 +63,36 @@ public abstract class IntegrationTestSupport {
                 .withReuse(true);
         rabbitMQ.start();
 
+        // DLQ에 TTL이 추가되어 기존 큐와 arguments가 달라지면 삭제 필요
+        // Spring context 초기화 전에 실행해야 함
+        deleteOldDlqQueues();
+
         // 3. Redis
         redis = new GenericContainer<>(DockerImageName.parse("redis:8.4.0"))
                 .withExposedPorts(6379)
                 .withReuse(true);
 
         redis.start();
+    }
+
+    /**
+     * 기존 DLQ 큐 삭제 (TTL argument 변경 시 재생성 필요)
+     * withReuse(true) 사용 시 기존 큐가 남아있으면 argument 충돌 발생
+     */
+    private static void deleteOldDlqQueues() {
+        String[] dlqQueues = {
+                RabbitMQQueue.MEMBER_JOINED_DLQ,
+                RabbitMQQueue.WALLET_CREATED_DLQ,
+                RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ
+        };
+
+        for (String dlqName : dlqQueues) {
+            try {
+                rabbitMQ.execInContainer("rabbitmqctl", "delete_queue", dlqName);
+            } catch (Exception e) {
+                // 큐가 없거나 삭제 실패해도 무시 (Spring이 다시 생성함)
+            }
+        }
     }
 
     @DynamicPropertySource

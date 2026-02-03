@@ -33,6 +33,13 @@ import java.util.Map;
 @EnableRabbit
 public class OutboxRabbitMQConfig {
 
+    // DLQ 메시지 TTL 설정된 시간이 지나면 자동 삭제되어 무한 증가 방지
+    private final int dlqTtlMs;
+
+    public OutboxRabbitMQConfig(@Value("${rabbitmq.dlq.ttl-ms:604800000}") int dlqTtlMs) {
+        this.dlqTtlMs = dlqTtlMs;
+    }
+
     // --------------------- Listener Factory --------------------------
 
     @Bean
@@ -148,7 +155,9 @@ public class OutboxRabbitMQConfig {
     // 회원가입 DLQ
     @Bean
     public Queue memberJoinedDlq() {
-        return new Queue(RabbitMQQueue.MEMBER_JOINED_DLQ, true);
+        return QueueBuilder.durable(RabbitMQQueue.MEMBER_JOINED_DLQ)
+                .ttl(dlqTtlMs)
+                .build();
     }
 
     // 회원가입 큐 -> member.exchange 바인딩
@@ -183,7 +192,9 @@ public class OutboxRabbitMQConfig {
     // 지갑 생성 DLQ
     @Bean
     public Queue walletCreatedDlq() {
-        return new Queue(RabbitMQQueue.WALLET_CREATED_DLQ, true);
+        return QueueBuilder.durable(RabbitMQQueue.WALLET_CREATED_DLQ)
+                .ttl(dlqTtlMs)
+                .build();
     }
 
     // 지갑 생성 큐 -> wallet.exchange 바인딩
@@ -218,7 +229,9 @@ public class OutboxRabbitMQConfig {
     // 결제 취소 보상 DLQ
     @Bean
     public Queue paymentCancelCompensateDlq() {
-        return new Queue(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ, true);
+        return QueueBuilder.durable(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ)
+                .ttl(dlqTtlMs)
+                .build();
     }
 
     // 결제 취소 보상 큐 -> payment.exchange 바인딩
