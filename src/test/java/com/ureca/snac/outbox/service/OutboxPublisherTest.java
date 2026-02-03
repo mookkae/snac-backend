@@ -6,6 +6,7 @@ import com.ureca.snac.outbox.fixture.OutboxFixture;
 import com.ureca.snac.outbox.repository.OutboxRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -267,5 +268,61 @@ class OutboxPublisherTest {
                         eq(MAX_RETRY_COUNT),
                         eq(PageRequest.of(0, BATCH_SIZE))
                 );
+    }
+
+    @Nested
+    @DisplayName("Graceful Shutdown")
+    class GracefulShutdownTest {
+
+        @Test
+        @DisplayName("성공 : shutdown 호출 후 새 배치 건너뜀")
+        void shutdown_skipsNewBatch() {
+            // when : shutdown 호출 후 publishPendingEvents 실행
+            outboxPublisher.shutdown();
+            outboxPublisher.publishPendingEvents();
+
+            // then : Repository 조회도 하지 않음 (조기 종료)
+            verify(outboxRepository, never())
+                    .findPendingEvents(any(), any(), any(), anyInt(), any());
+
+            verify(messagePublisher, never())
+                    .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
+        }
+
+        @Test
+        @DisplayName("성공 : shutdown 중복 호출 시 안전하게 처리 (AtomicBoolean)")
+        void shutdown_multipleCallsSafe() {
+            // when : 여러 번 shutdown 호출
+            outboxPublisher.shutdown();
+            outboxPublisher.shutdown();
+            outboxPublisher.shutdown();
+
+            // then : 예외 없이 안전하게 처리
+            outboxPublisher.publishPendingEvents();
+
+            verify(outboxRepository, never())
+                    .findPendingEvents(any(), any(), any(), anyInt(), any());
+        }
+
+        @Test
+        @DisplayName("성공 : shutdown 전 정상 동작")
+        void beforeShutdown_normalOperation() {
+            // given
+            Outbox outbox = OutboxFixture.failedWithRetryWithId(1L, 1L, 1);
+
+            given(outboxRepository.findPendingEvents(
+                    any(), any(), any(), anyInt(), any()
+            )).willReturn(List.of(outbox));
+
+            // when : shutdown 호출 전 정상 동작
+            outboxPublisher.publishPendingEvents();
+
+            // then : 정상적으로 발행
+            verify(messagePublisher, times(1))
+                    .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
+
+            verify(outboxStatusUpdater, times(1))
+                    .markAsPublished(1L);
+        }
     }
 }
