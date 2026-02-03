@@ -22,11 +22,7 @@ import java.util.UUID;
 
                 // SEND_FAIL 재시도 전용
                 @Index(name = "idx_status_retry",
-                        columnList = "status, retry_count"),
-
-                // Aggregate 추적용
-                @Index(name = "idx_aggregate",
-                        columnList = "aggregate_type, aggregate_id")
+                        columnList = "status, retry_count")
         }
 )
 @Getter
