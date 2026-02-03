@@ -298,6 +298,114 @@ class OutboxRepositoryTest extends RepositoryTestSupport {
     }
 
     @Nested
+    @DisplayName("deleteOldPublishedEvents 메서드")
+    class DeleteOldPublishedEventsTest {
+
+        @Test
+        @DisplayName("성공 : PUBLISHED 상태 + 오래된 이벤트 삭제")
+        void deleteOldPublishedEvents_deletesOldPublished() {
+            // given
+            insertPublishedWithCreatedAt(1L, 31);  // 31일 전 (삭제 대상)
+            insertPublishedWithCreatedAt(2L, 30);  // 30일 전 (삭제 대상)
+            insertPublishedWithCreatedAt(3L, 29);  // 29일 전 (보존)
+
+            LocalDateTime threshold = LocalDateTime.now().minusDays(30);
+
+            // when
+            int deleted = outboxRepository.deleteOldPublishedEvents(threshold, 100);
+
+            em.flush();
+            em.clear();
+
+            // then
+            assertThat(deleted).isEqualTo(2);
+            assertThat(outboxRepository.findAll()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("성공 : INIT/SEND_FAIL 상태는 삭제하지 않음")
+        void deleteOldPublishedEvents_excludesNonPublished() {
+            // given
+            insertPublishedWithCreatedAt(1L, 31);  // PUBLISHED (삭제 대상)
+            outboxRepository.save(OutboxFixture.memberJoinInit(2L));  // INIT (보존)
+            outboxRepository.save(OutboxFixture.failedWithRetry(3L, 1));  // SEND_FAIL (보존)
+            outboxRepository.flush();
+
+            LocalDateTime threshold = LocalDateTime.now().minusDays(30);
+
+            // when
+            int deleted = outboxRepository.deleteOldPublishedEvents(threshold, 100);
+
+            em.flush();
+            em.clear();
+
+            // then
+            assertThat(deleted).isEqualTo(1);
+            assertThat(outboxRepository.findAll()).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("성공 : LIMIT 적용되어 배치 크기만큼만 삭제")
+        void deleteOldPublishedEvents_respectsLimit() {
+            // given
+            for (int i = 0; i < 10; i++) {
+                insertPublishedWithCreatedAt((long) i, 31);
+            }
+
+            LocalDateTime threshold = LocalDateTime.now().minusDays(30);
+
+            // when
+            int deleted = outboxRepository.deleteOldPublishedEvents(threshold, 3);
+
+            em.flush();
+            em.clear();
+
+            // then
+            assertThat(deleted).isEqualTo(3);
+            assertThat(outboxRepository.findAll()).hasSize(7);
+        }
+
+        @Test
+        @DisplayName("성공 : 삭제 대상 없으면 0 반환")
+        void deleteOldPublishedEvents_noMatchingEvents_returnsZero() {
+            // given
+            insertPublishedWithCreatedAt(1L, 1);  // 1일 전 (threshold 이후)
+            outboxRepository.save(OutboxFixture.memberJoinInit(2L));  // INIT
+
+            LocalDateTime threshold = LocalDateTime.now().minusDays(30);
+
+            // when
+            int deleted = outboxRepository.deleteOldPublishedEvents(threshold, 100);
+
+            // then
+            assertThat(deleted).isEqualTo(0);
+            assertThat(outboxRepository.findAll()).hasSize(2);
+        }
+
+        private void insertPublishedWithCreatedAt(Long aggregateId, int daysAgo) {
+            LocalDateTime createdAt = LocalDateTime.now().minusDays(daysAgo);
+
+            em.createNativeQuery(
+                            "INSERT INTO outbox " +
+                                    "(event_id, event_type, aggregate_type, aggregate_id, " +
+                                    "payload, status, retry_count, created_at, updated_at, published_at) " +
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    )
+                    .setParameter(1, UUID.randomUUID().toString())
+                    .setParameter(2, "MEMBER_JOIN")
+                    .setParameter(3, "MEMBER")
+                    .setParameter(4, aggregateId)
+                    .setParameter(5, String.format("{\"id\":%d}", aggregateId))
+                    .setParameter(6, "PUBLISHED")
+                    .setParameter(7, 0)
+                    .setParameter(8, createdAt)
+                    .setParameter(9, createdAt)
+                    .setParameter(10, createdAt.plusSeconds(1))
+                    .executeUpdate();
+        }
+    }
+
+    @Nested
     @DisplayName("멱등성 검증")
     class IdempotencyTest {
 

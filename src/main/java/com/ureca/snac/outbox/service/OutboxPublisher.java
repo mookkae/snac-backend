@@ -3,6 +3,7 @@ package com.ureca.snac.outbox.service;
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.outbox.repository.OutboxRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Outbox 스케줄러 (백업 + Pure Polling)
@@ -30,6 +32,9 @@ public class OutboxPublisher {
     private final int staleThresholdMinutes;
     private final int maxRetryCount;
 
+    // 종료 요청 플래그 (AtomicBoolean으로 스레드 안전성 보장)
+    private final AtomicBoolean shutdownRequested = new AtomicBoolean(false);
+
     public OutboxPublisher(
             OutboxRepository outboxRepository,
             OutboxMessagePublisher messagePublisher,
@@ -46,12 +51,22 @@ public class OutboxPublisher {
         this.maxRetryCount = maxRetryCount;
     }
 
-    /**
-     * 발행 대기 중인 이벤트를 RabbitMQ로 발행
-     * 1초 주기로 실행
-     */
+    // Graceful Shutdown 처리
+    @PreDestroy
+    public void shutdown() {
+        if (shutdownRequested.compareAndSet(false, true)) {
+            log.info("[Outbox Scheduler] 종료 요청. 진행 중인 배치 완료 후 중단됩니다.");
+        }
+    }
+
+    // 1초 주기로 발행 대기 중인 이벤트를 RabbitMQ로 발행
     @Scheduled(fixedDelayString = "${outbox.publisher.fixed-delay-ms}")
     public void publishPendingEvents() {
+        if (shutdownRequested.get()) {
+            log.debug("[Outbox Scheduler] 종료 요청됨. 새 배치 건너뜀.");
+            return;
+        }
+
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(staleThresholdMinutes);
 
         // 짧은 조회

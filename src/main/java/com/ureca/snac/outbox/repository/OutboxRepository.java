@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -54,21 +55,26 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
     );
 
     /**
-     * 발행 완료된 오래된 이벤트 삭제용 조회
+     * 발행 완료된 오래된 이벤트 일괄 삭제
+     * <p>
+     * idx_status_created 인덱스 활용 (status, created_at)
+     * 아웃박스 삭제 스케줄러에서 주기적으로 호출
+     * 각 호출이 독립 트랜잭션으로 처리됨
      *
-     * @param status    PUBLISHED 상태
-     * @param threshold 보관 기준 시간 (예: 30일 전)
-     * @param pageable  페이징 설정
-     * @return 삭제 대상 Outbox 목록
+     * @param threshold 보관 기준 시간
+     * @param limit     한 번에 삭제할 최대 건수
+     * @return 삭제된 행 수
      */
-    @Query("SELECT o FROM Outbox o " +
-            "WHERE o.status = :status " +
-            "AND o.publishedAt < :threshold " +
-            "ORDER BY o.id ASC")
-    List<Outbox> findOldPublishedEvents(
-            @Param("status") OutboxStatus status,
+    @Transactional
+    @Modifying
+    @Query(value = "DELETE FROM outbox " +
+            "WHERE status = 'PUBLISHED' " +
+            "AND created_at < :threshold " +
+            "LIMIT :limit",
+            nativeQuery = true)
+    int deleteOldPublishedEvents(
             @Param("threshold") LocalDateTime threshold,
-            Pageable pageable
+            @Param("limit") int limit
     );
 
     /**
