@@ -138,8 +138,14 @@ outbox:
     fixed-delay-ms: 1000
   dlq-monitor:
     interval: 1000
+  cleanup:
+    retention-days: 7
+    batch-size: 100
+    cron: "0 0 3 * * ?"
 
 rabbitmq:
+  dlq:
+    ttl-ms: 1000
   listener:
     retry:
       max-attempts: 3

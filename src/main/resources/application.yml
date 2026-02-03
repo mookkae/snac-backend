@@ -124,12 +124,18 @@ spring:
     #1분
 
   # RabbitMQ 설정
-
   rabbitmq:
     host: ${RABBITMQ_HOST}
     port: ${RABBITMQ_PORT}
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
+    # Connection Recovery 설정
+    connection-timeout: 10000
+    requested-heartbeat: 60             # 60초마다 하트비트
+    cache:
+      channel:
+        size: 25                        # 채널 풀 크기
+        checkout-timeout: 5000
 
 
 # CORS 외부화 설정
@@ -217,8 +223,14 @@ outbox:
     fixed-delay-ms: ${OUTBOX_FIXED_DELAY}
   dlq-monitor:
     interval: ${OUTBOX_DLQ_MONITOR_INTERVAL}
+  cleanup:
+    retention-days: ${OUTBOX_CLEANUP_RETENTION_DAYS}
+    batch-size: ${OUTBOX_CLEANUP_BATCH_SIZE}
+    cron: ${OUTBOX_CLEANUP_CRON}
 
 rabbitmq:
+  dlq:
+    ttl-ms: ${RABBITMQ_DLQ_TTL_MS}
   listener:
     retry:
       max-attempts: ${RABBITMQ_LISTENER_MAX_ATTEMPTS}
