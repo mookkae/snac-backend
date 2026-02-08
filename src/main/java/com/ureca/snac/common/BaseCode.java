@@ -140,8 +140,6 @@ public enum BaseCode {
     MONEY_RECHARGE_SUCCESS("MONEY_RECHARGE_SUCCESS_200", HttpStatus.OK, "머니 충전에 성공했습니다"),
     PAYMENT_CANCEL_SUCCESS("PAYMENT_CANCEL_SUCCESS_200", HttpStatus.OK, "결제 취소에 성공했습니다,"),
 
-    PAYMENT_FAILURE_LOGGED("PAYMENT_FAILURE_LOGGED_200", HttpStatus.OK, "결제 실패 내역 기록이 성공했습니다,"),
-
     // 결제 - 예외
     PAYMENT_NOT_FOUND("PAYMENT_NOT_FOUND_404", HttpStatus.NOT_FOUND, "존재하지 않는 결제입니다"),
     PAYMENT_ALREADY_PROCESSED_PAYMENT("PAYMENT_ALREADY_PROCESSED_PAYMENT_409", HttpStatus.CONFLICT, "이미 처리된 결제입니다"),
@@ -169,7 +167,6 @@ public enum BaseCode {
 
     // 지갑 - 예외
     WALLET_NOT_FOUND("WALLET_NOT_FOUND_404", HttpStatus.NOT_FOUND, "지갑 정보를 찾을 수 없습니다"),
-    WALLET_ALREADY_EXISTS("WALLET_ALREADY_EXISTS_409", HttpStatus.CONFLICT, "이미 지갑이 있습니다"),
     INVALID_AMOUNT("INVALID_AMOUNT_400", HttpStatus.BAD_REQUEST, "금액은 0보다 커야합니다"),
     INSUFFICIENT_BALANCE("INSUFFICIENT_BALANCE_400", HttpStatus.BAD_REQUEST, "잔액이 부족합니다."),
 
