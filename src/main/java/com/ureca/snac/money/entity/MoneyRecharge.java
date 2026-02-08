@@ -35,7 +35,7 @@ public class MoneyRecharge extends BaseTimeEntity {
     // 외부 결제 API 리팩토링
     // 역할 분리, 충전과 결제
 
-    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.PERSIST)
     @JoinColumn(name = "payment_id", nullable = false, unique = true)
     private Payment payment;
 
