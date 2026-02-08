@@ -23,16 +23,17 @@ public class Payment extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "payment_id")
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "member_id", nullable = false)
     private Member member;
 
-    @Column(nullable = false, unique = true)
+    @Column(name = "order_id", nullable = false, unique = true)
     private String orderId;
 
-    @Column(unique = true)
+    @Column(name = "payment_key", unique = true)
     private String paymentKey;
 
     @Enumerated(EnumType.STRING)
@@ -49,18 +50,9 @@ public class Payment extends BaseTimeEntity {
 
     private String cancelReason;
 
-    private String failureCode;
+    @Column(columnDefinition = "boolean default false")
+    private boolean compensationCompleted;
 
-    private String failureMessage;
-
-    /**
-     * prepare 상태의 객체 생성 팩토리 메소드 + private 빌더 객체 생성 통제
-     * Builder 반환 대신 Payment 객체 반환
-     * 외부에서 Builder 모름
-     *
-     * @param amount 결제 요청 금액
-     * @return Payment 객체
-     */
     public static Payment prepare(Member member, Long amount) {
         if (amount == null || amount <= 0) {
             throw new BusinessException(INVALID_INPUT);
@@ -73,66 +65,51 @@ public class Payment extends BaseTimeEntity {
                 .build();
     }
 
-    // 핵심 비즈니스 메소드
-
     // 상태 완료
-    public void complete(String paymentKey, String method, OffsetDateTime paidAt) {
+    public void complete(String paymentKey, PaymentMethod method, OffsetDateTime paidAt) {
+        if (this.status != PaymentStatus.PENDING) {
+            throw new PaymentAlreadyProcessedPaymentException();
+        }
         this.paymentKey = paymentKey;
-        this.method = PaymentMethod.fromTossMethod(method);
+        this.method = method;
         this.paidAt = paidAt;
         this.status = PaymentStatus.SUCCESS;
     }
 
     // 상태 취소
     public void cancel(String reason) {
+        if (this.status == PaymentStatus.CANCELED) {
+            throw new PaymentNotCancellableException();
+        }
         this.cancelReason = reason;
         this.status = PaymentStatus.CANCELED;
     }
 
-    // 상태 실패
-    // 1차방어선 예상된 실패 발생 결제 시도를 취소로 기록
-    public void reportFailureAsCancellation(String failureCode, String failureMessage) {
-        validateIsNotAlreadyProcessed();
-        this.status = PaymentStatus.CANCELED;
-        this.failureCode = failureCode;
-        this.failureMessage = failureMessage;
-    }
-
-    // 예상하지 못한 실패 발생 시 결제를 FAIL로 2차 방어선
-    public void recordFailure(String failureCode, String failureMessage) {
-        validateIsNotAlreadyProcessed();
-        this.status = PaymentStatus.FAIL;
-        this.failureCode = failureCode;
-        this.failureMessage = failureMessage;
+    // 보상 처리 완료 플래그
+    public void markCompensationCompleted() {
+        this.compensationCompleted = true;
     }
 
     // 유효성 검증 메소드
     public void validateForConfirmation(Member member, Long amount) {
-        if (isAlreadyProcessed()) {
+        if (this.status != PaymentStatus.PENDING) {
             throw new PaymentAlreadyProcessedPaymentException();
         }
         if (!isOwner(member)) {
             throw new PaymentOwnershipMismatchException();
         }
-        if (!isAmount(amount)) {
+        if (!this.amount.equals(amount)) {
             throw new PaymentAmountMismatchException();
         }
     }
 
-    public void validateForCancellation(Member member, Long currentUserBalance) {
-        // 이미 썻다 잔액 확인
-        if (currentUserBalance < this.getAmount()) {
-            throw new AlreadyUsedRechargeCannotCancelException();
-        }
-        // 취소 불가능한지
+    public void validateForCancellation(Member member) {
         if (this.status != PaymentStatus.SUCCESS) {
             throw new PaymentNotCancellableException();
         }
-
         if (!isOwner(member)) {
             throw new PaymentOwnershipMismatchException();
         }
-
         if (isCancellationPeriodExpired()) {
             throw new PaymentPeriodExpiredException();
         }
@@ -152,30 +129,11 @@ public class Payment extends BaseTimeEntity {
         };
     }
 
-    // 내부 상태 조회용 헬퍼 메소드
-    // 이미 처리된 건인지 증명
-    private boolean isAlreadyProcessed() {
-        return this.status != PaymentStatus.PENDING;
-    }
-
     // 소유주 검증
     private boolean isOwner(Member member) {
         if (this.member == null || member == null) {
             return false;
         }
         return Objects.equals(this.member.getId(), member.getId());
-    }
-
-    // 기록 금액 검증
-    private boolean isAmount(Long amount) {
-        return this.amount.equals(amount);
-    }
-
-    // 이미 처리된 결제인지 검증
-    private void validateIsNotAlreadyProcessed() {
-        if (this.status != PaymentStatus.PENDING) {
-            // 이미 처리된 결제임
-            throw new PaymentAlreadyProcessedPaymentException();
-        }
     }
 }
