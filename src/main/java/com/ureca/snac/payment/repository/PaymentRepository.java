@@ -1,12 +1,16 @@
 package com.ureca.snac.payment.repository;
 
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
@@ -52,4 +56,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("select p from Payment p join fetch p.member where p.id = :id")
     Optional<Payment> findByIdForUpdate(@Param("id") Long id);
 
+    /**
+     * 일정 시간 이상 PENDING 상태로 남아 있는 결제 건 조회 스케줄러에서 사용
+     *
+     * @param status    조회할 결제 상태
+     * @param threshold 기준 시각 (이 시각 이전에 생성된 결제)
+     * @param pageable  배치 크기 제어
+     * @return 기준 시각 이전에 생성된 PENDING 결제 목록
+     */
+    @Query("select p from Payment p join fetch p.member where p.status = :status and p.createdAt < :threshold")
+    List<Payment> findStalePendingPayments(@Param("status") PaymentStatus status,
+                                           @Param("threshold") LocalDateTime threshold,
+                                           Pageable pageable);
 }

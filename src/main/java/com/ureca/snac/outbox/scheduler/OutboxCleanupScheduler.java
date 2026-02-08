@@ -25,8 +25,8 @@ public class OutboxCleanupScheduler {
 
     public OutboxCleanupScheduler(
             OutboxRepository outboxRepository,
-            @Value("${outbox.cleanup.retention-days:30}") int retentionDays,
-            @Value("${outbox.cleanup.batch-size:1000}") int batchSize
+            @Value("${outbox.cleanup.retention-days}") int retentionDays,
+            @Value("${outbox.cleanup.batch-size}") int batchSize
     ) {
         this.outboxRepository = outboxRepository;
         this.retentionDays = retentionDays;
