@@ -36,7 +36,7 @@ public class OutboxRabbitMQConfig {
     // DLQ 메시지 TTL 설정된 시간이 지나면 자동 삭제되어 무한 증가 방지
     private final int dlqTtlMs;
 
-    public OutboxRabbitMQConfig(@Value("${rabbitmq.dlq.ttl-ms:604800000}") int dlqTtlMs) {
+    public OutboxRabbitMQConfig(@Value("${rabbitmq.dlq.ttl-ms}") int dlqTtlMs) {
         this.dlqTtlMs = dlqTtlMs;
     }
 

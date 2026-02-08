@@ -42,6 +42,7 @@ public class DlqMonitor {
         try {
             checkAndAlert(RabbitMQQueue.MEMBER_JOINED_DLQ, "회원가입");
             checkAndAlert(RabbitMQQueue.WALLET_CREATED_DLQ, "지갑생성");
+            checkAndAlert(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ, "결제취소보상");
 
         } catch (Exception e) {
             log.error("[DLQ 모니터링] 실패", e);
