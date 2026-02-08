@@ -13,11 +13,18 @@ import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 머니 입금 DB 처리 담당
+ *
+ * @Retryable TransientDataAccessException, DataAccessException 발생 시 최대 3회 재시도
+ * 500ms 초기 지연, 2배 증가 (500ms -> 1s -> 2s)
  * FOR UPDATE 락으로 Payment 상태 확인하여 중복 처리 방지 (멱등성)
  */
 @Slf4j
@@ -30,6 +37,12 @@ public class MoneyDepositor {
     private final WalletService walletService;
     private final AssetRecorder assetRecorder;
 
+    @Retryable(
+            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            maxAttemptsExpression = "${retry.depositor.max-attempts}",
+            backoff = @Backoff(delayExpression = "${retry.depositor.delay}",
+                    multiplierExpression = "${retry.depositor.multiplier}")
+    )
     @Transactional
     public void deposit(Payment payment, Member member, TossConfirmResponse tossConfirmResponse) {
         log.info("[머니 입금 처리] DB 상태 변경 시작. paymentId : {}", payment.getId());

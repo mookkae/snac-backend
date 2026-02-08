@@ -42,8 +42,8 @@ public class SlackNotifier {
     @Async(AsyncConfig.NOTIFICATION_EXECUTOR_NAME)
     @Retryable(
             retryFor = {RestClientException.class},
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 1000)
+            maxAttemptsExpression = "${retry.slack.max-attempts}",
+            backoff = @Backoff(delayExpression = "${retry.slack.delay}")
     )
     public void sendAsync(SlackMessage message) {
         restClient.post()
