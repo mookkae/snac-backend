@@ -2,6 +2,7 @@ package com.ureca.snac.dev.infra;
 
 import com.ureca.snac.infra.PaymentGatewayAdapter;
 import com.ureca.snac.infra.dto.response.TossConfirmResponse;
+import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
@@ -44,6 +45,14 @@ public class FakePaymentGatewayAdapter implements PaymentGatewayAdapter {
                 .canceledAt(OffsetDateTime.now())
                 .reason(reason)
                 .build();
+    }
+
+    @Override
+    public TossPaymentInquiryResponse inquirePaymentByOrderId(String orderId) {
+        log.warn("[Fake Adapter] 실제 API 호출 없이 더미 응답 (조회)");
+        return new TossPaymentInquiryResponse(
+                "fake_payment_key", orderId, "DONE", "개발용", 10000L, OffsetDateTime.now()
+        );
     }
 }
 

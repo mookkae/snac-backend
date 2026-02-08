@@ -9,7 +9,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: create-drop  # 스키마 재생성
+      ddl-auto: create
     properties:
       hibernate:
         format_sql: false
@@ -152,6 +152,25 @@ rabbitmq:
       initial-interval: 1000
       multiplier: 2.0
       max-interval: 10000
+
+reconciliation:
+  scheduler:
+    cron: "0 */5 * * * ?"
+    stale-threshold-minutes: 10
+    batch-size: 50
+
+retry:
+  toss:
+    max-attempts: 3
+    delay: 1000
+    multiplier: 2.0
+  depositor:
+    max-attempts: 3
+    delay: 500
+    multiplier: 2.0
+  slack:
+    max-attempts: 3
+    delay: 1000
 
 logging:
   level:

@@ -1,6 +1,7 @@
 package com.ureca.snac.infra;
 
 import com.ureca.snac.infra.dto.response.TossConfirmResponse;
+import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 
 /**
@@ -27,4 +28,12 @@ public interface PaymentGatewayAdapter {
      * @return 우리 시스템의 표준 결제 취소응답 DTO
      */
     PaymentCancelResponse cancelPayment(String paymentKey, String reason);
+
+    /**
+     * 주문번호로 결제 상태 조회
+     *
+     * @param orderId 우리 시스템의 고유 주문번호
+     * @return 토스페이먼츠 결제 조회 응답
+     */
+    TossPaymentInquiryResponse inquirePaymentByOrderId(String orderId);
 }

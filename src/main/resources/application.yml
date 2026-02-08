@@ -237,3 +237,22 @@ rabbitmq:
       initial-interval: ${RABBITMQ_LISTENER_INITIAL_INTERVAL}
       multiplier: ${RABBITMQ_LISTENER_MULTIPLIER}
       max-interval: ${RABBITMQ_LISTENER_MAX_INTERVAL}
+
+reconciliation:
+  scheduler:
+    cron: ${RECONCILIATION_CRON}
+    stale-threshold-minutes: ${RECONCILIATION_STALE_THRESHOLD}
+    batch-size: ${RECONCILIATION_BATCH_SIZE}
+
+retry:
+  toss:
+    max-attempts: ${RETRY_TOSS_MAX_ATTEMPTS}
+    delay: ${RETRY_TOSS_DELAY}
+    multiplier: ${RETRY_TOSS_MULTIPLIER}
+  depositor:
+    max-attempts: ${RETRY_DEPOSITOR_MAX_ATTEMPTS}
+    delay: ${RETRY_DEPOSITOR_DELAY}
+    multiplier: ${RETRY_DEPOSITOR_MULTIPLIER}
+  slack:
+    max-attempts: ${RETRY_SLACK_MAX_ATTEMPTS}
+    delay: ${RETRY_SLACK_DELAY}

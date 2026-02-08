@@ -1,8 +1,10 @@
 package com.ureca.snac.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.retry.annotation.EnableRetry;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -15,10 +17,13 @@ import java.util.concurrent.ThreadPoolExecutor;
  * Executor 분리 전략
  * Outbox 이벤트 발행 AFTER_COMMIT 리스너가 사용
  * Slack 알림
+ * TossPaymentsAdapter, MoneyDepositor 재시도 지원
  */
 @Slf4j
 @Configuration
 @EnableAsync
+@EnableRetry
+@EnableConfigurationProperties(RetryProperties.class)
 public class AsyncConfig {
     public static final String EVENT_EXECUTOR_NAME = "eventAsyncExecutor";
     public static final String NOTIFICATION_EXECUTOR_NAME = "notificationAsyncExecutor";
