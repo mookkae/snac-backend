@@ -25,7 +25,6 @@ public class PaymentCancelMapper {
             throw new ExternalApiException(TOSS_API_CALL_ERROR);
         }
 
-        // 부분 취소 시 여러 건의 취소 내역이 있을 수 있으므로 가장 최근 취소를 사용
         TossCancelResponse.Cancel latestCancel = tossCancelResponse.getLatestCancel();
         if (latestCancel == null) {
             throw new ExternalApiException(TOSS_API_CALL_ERROR);

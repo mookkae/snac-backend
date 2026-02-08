@@ -18,7 +18,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
      * @return Payment 객체 optional
      */
     @Query("select p from Payment p join fetch p.member where p.orderId = :orderId")
-    Optional<Payment> findByOrderId(String orderId);
+    Optional<Payment> findByOrderId(@Param("orderId") String orderId);
 
     /**
      * 결제 키를 사용하여 Payment 조회할 때
@@ -40,4 +40,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p join fetch p.member where p.orderId = :orderId")
     Optional<Payment> findByOrderIdWithMemberForUpdate(@Param("orderId") String orderId);
+
+    /**
+     * Payment ID로 비관적 락 조회
+     * deposit 시점에 lock을 재획득하여 race condition 방지
+     *
+     * @param id Payment ID
+     * @return Payment with pessimistic write lock
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p join fetch p.member where p.id = :id")
+    Optional<Payment> findByIdForUpdate(@Param("id") Long id);
+
 }

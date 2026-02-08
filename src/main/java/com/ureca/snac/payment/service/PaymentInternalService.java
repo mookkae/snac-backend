@@ -6,20 +6,19 @@ import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
+import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * [신규 컴포넌트]
- * 결제와 관련된 단일 책임 내부 DB 상태 변경
- * 내부적인 헬퍼 역할
- */
+// 결제와 관련된 단일 책임 내부 DB 상태 변경
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -42,22 +41,28 @@ public class PaymentInternalService {
     public void processCancellationInDB(Payment payment, Member member, PaymentCancelResponse cancelResponse) {
         log.info("[내부 처리] 결제 취소 DB 상태 변경 시작 paymentId : {}", payment.getId());
 
-        Payment managedPayment = paymentRepository.save(payment);
-        log.info("[내부 처리] 준영속 상태의 Payment 객체를 영속성 전환");
+        // FOR UPDATE 락으로 Payment 재조회 - 중복 취소 방지
+        Payment lockedPayment = paymentRepository.findByIdForUpdate(payment.getId())
+                .orElseThrow(PaymentNotFoundException::new);
 
-        // 관리 상태가 된 객체 변경
-        managedPayment.cancel(cancelResponse.reason());
-        log.info("[내부 처리] Payment 엔티티 상태 CANCELED 상태");
+        // 이미 취소된 경우 조기 종료 (멱등성)
+        if (lockedPayment.getStatus() == PaymentStatus.CANCELED) {
+            log.warn("[내부 처리] 이미 취소된 결제. 중복 처리 방지. paymentId: {}", payment.getId());
+            return;
+        }
+
+        lockedPayment.cancel(cancelResponse.reason());
+        log.info("[내부 처리] Payment 엔티티 상태 CANCELED 변경 완료");
 
         // 머니 잔액을 회수
         Long balanceAfter = walletService.withdrawMoney(member.getId(),
-                managedPayment.getAmount());
+                lockedPayment.getAmount());
         log.info("[내부 처리] 지갑 머니 회수(출금) 완료 회원 ID : {}, 최종 잔액 : {}",
                 member.getId(), balanceAfter);
 
         // 동기 직접 기록
         assetRecorder.recordMoneyRechargeCancel(
-                member.getId(), managedPayment.getId(), managedPayment.getAmount(), balanceAfter);
+                member.getId(), lockedPayment.getId(), lockedPayment.getAmount(), balanceAfter);
         log.info("[내부 처리] 자산 변동 기록 직접 저장 완료. 회원 ID : {}", member.getId());
     }
 
@@ -65,25 +70,27 @@ public class PaymentInternalService {
      * 결제 취소 DB 처리 실패 시 보상 처리
      * Payment 상태를 CANCELED로 변경
      * Outbox 이벤트 발행 (Wallet 환불 + AssetHistory 기록은 비동기 처리)
+     * <p>
+     * REQUIRES_NEW: outer 트랜잭션 실패와 무관하게 보상 이벤트 커밋 보장
+     * processCancellationInDB() 실패 시 outer 트랜잭션 롤백
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void compensateCancellationFailure(Payment payment, Member member,
-                                              PaymentCancelResponse cancelResponse,
-                                              Exception originalError) {
+                                              PaymentCancelResponse cancelResponse, Exception originalError) {
         try {
             log.warn("[결제 취소 보상] Payment 상태 복구 및 보상 이벤트 발행 시도. paymentId: {}",
                     payment.getId());
 
             // Payment 상태 CANCELED로 변경
             Payment freshPayment = paymentRepository.findById(payment.getId())
-                    .orElse(payment);
+                    .orElseThrow(PaymentNotFoundException::new);
             freshPayment.cancel(cancelResponse.reason() + " [보상 처리]");
             paymentRepository.save(freshPayment);
 
             log.info("[결제 취소 보상] Payment 상태 CANCELED로 복구 완료. paymentId: {}",
                     payment.getId());
 
-            // Outbox 이벤트 발행 (Wallet 환불은 비동기로 처리)
+            // Outbox 이벤트 발행 (Wallet 출금(차감) 비동기로 처리)
             eventPublisher.publishEvent(new PaymentCancelCompensationEvent(
                     payment.getId(),
                     member.getId(),
@@ -117,6 +124,16 @@ public class PaymentInternalService {
     @Transactional
     public void processCompensation(PaymentCancelCompensationEvent event) {
 
+        // FOR UPDATE 락으로 Payment 재조회 - 중복 보상 방지 (멱등성)
+        Payment lockedPayment = paymentRepository.findByIdForUpdate(event.paymentId())
+                .orElseThrow(PaymentNotFoundException::new);
+
+        // 이미 보상 처리된 경우 조기 종료
+        if (lockedPayment.isCompensationCompleted()) {
+            log.warn("[결제 취소 보상] 이미 처리된 보상. 중복 처리 방지. paymentId: {}", event.paymentId());
+            return;
+        }
+
         Member member = memberRepository.findById(event.memberId())
                 .orElseThrow(MemberNotFoundException::new);
 
@@ -131,5 +148,8 @@ public class PaymentInternalService {
                 member.getId(), event.paymentId(), event.amount(), balanceAfter);
 
         log.info("[결제 취소 보상] AssetHistory 기록 완료. paymentId: {}", event.paymentId());
+
+        // 보상 완료 플래그 설정
+        lockedPayment.markCompensationCompleted();
     }
 }

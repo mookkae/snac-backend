@@ -2,12 +2,11 @@ package com.ureca.snac.payment.service;
 
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
-import com.ureca.snac.payment.dto.PaymentFailureRequest;
 import com.ureca.snac.payment.entity.Payment;
 
 /**
  * 결제 도메인의 비즈니스 서비스 인터페이스
- * 도메인 결제 책인 분리
+ * 도메인 결제 책임 분리
  */
 public interface PaymentService {
     /**
@@ -30,11 +29,19 @@ public interface PaymentService {
     PaymentCancelResponse cancelPayment(String paymentKey, String reason, String email);
 
     /**
-     * 결제 실패 처리 기능
-     * 토스페이먼츠 단계 에서 실패 == 카드사 거절 사용자 취소등
-     * 우리 시스템에 기록해둬야됨 payment 클래스에
-     *
-     * @param request 실패 정보가 담긴 DTO
+     * Payment를 CANCELED 상태로 변경
+     * Auto-Cancel 등 외부 취소 성공 후 DB 반영 용도
      */
-    void processPaymentFailure(PaymentFailureRequest request);
+    void markAsCanceled(Long paymentId, String reason);
+
+    /**
+     * 결제 확정 전 검증
+     * MoneyService에서 외부 API 호출 전 검증 용도 별도 메서드로 분리
+     *
+     * @param orderId 주문 ID
+     * @param amount  결제 금액
+     * @param member  결제 요청자
+     * @return 검증된 Payment 엔티티
+     */
+    Payment findAndValidateForConfirmation(String orderId, Long amount, Member member);
 }
