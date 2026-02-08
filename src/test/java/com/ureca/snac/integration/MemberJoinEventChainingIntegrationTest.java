@@ -60,19 +60,19 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
     private static final long SIGNUP_BONUS_POINT = 1000L;
     private static final int EXPECTED_OUTBOX_COUNT = 2; // MEMBER_JOIN, WALLET_CREATED
 
+    private JoinRequest request;
+
     @BeforeEach
     void setUp() {
         // 회원가입 전제 조건 Mock
         given(emailService.isEmailVerified(anyString())).willReturn(true);
         given(snsService.isPhoneVerified(anyString())).willReturn(true);
+        request = JoinRequestFixture.create();
     }
 
     @Test
     @DisplayName("시나리오 1 : 회원가입 -> 지갑 생성 -> 회원가입 축하 포인트 지급")
     void scenario1_HappyPath() {
-        // given
-        JoinRequest request = JoinRequestFixture.create();
-
         // when : 회원가입
         joinService.joinProcess(request);
 
@@ -116,8 +116,6 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
         // given : RabbitMQ 애플리케이션만 중지 (컨테이너는 생존, 포트 유지)
         // 이렇게 하면 Spring은 연결이 끊겼다고 인식하지만, 재시작 시 포트가 바뀌지 않음
         rabbitMQ.execInContainer("rabbitmqctl", "stop_app");
-
-        JoinRequest request = JoinRequestFixture.create();
 
         try {
             /*
@@ -172,7 +170,6 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
     @DisplayName("시나리오 3 : 지갑 중복 생성 방지 (멱등성)")
     void scenario3_WalletCreation_Idempotency() throws Exception {
         // given
-        JoinRequest request = JoinRequestFixture.create();
         joinService.joinProcess(request);
 
         Member member = memberRepository.findByEmail(request.getEmail())
@@ -202,7 +199,6 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
     @DisplayName("시나리오 4 : 포인트 중복 지급 방지 (멱등성)")
     void scenario4_PointDeposit_Idempotency() throws Exception {
         // given : 회원가입 -> 지갑 생성 -> 포인트 지급 완료
-        JoinRequest request = JoinRequestFixture.create();
         joinService.joinProcess(request);
 
         Member member = memberRepository.findByEmail(request.getEmail())

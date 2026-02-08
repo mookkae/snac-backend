@@ -8,6 +8,7 @@ import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
+import com.ureca.snac.payment.event.alert.CompensationFailureEvent;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
@@ -113,6 +114,19 @@ public class PaymentInternalService {
                     originalError.getMessage(),
                     compensationError.getMessage(),
                     compensationError);
+
+            // 운영자 알림 이벤트 발행
+            eventPublisher.publishEvent(new CompensationFailureEvent(
+                    payment.getId(),
+                    member.getId(),
+                    payment.getAmount(),
+                    payment.getOrderId(),
+                    payment.getPaymentKey(),
+                    cancelResponse.reason(),
+                    cancelResponse.canceledAt(),
+                    originalError.getMessage(),
+                    compensationError.getMessage()
+            ));
         }
     }
 

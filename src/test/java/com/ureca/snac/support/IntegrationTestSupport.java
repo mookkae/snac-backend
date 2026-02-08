@@ -6,8 +6,11 @@ import com.ureca.snac.auth.service.verify.EmailService;
 import com.ureca.snac.auth.service.verify.SnsService;
 import com.ureca.snac.common.notification.SlackNotifier;
 import com.ureca.snac.config.RabbitMQQueue;
+import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.repository.SocialLinkRepository;
+import com.ureca.snac.support.fixture.MemberFixture;
+import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.outbox.repository.OutboxRepository;
 import com.ureca.snac.outbox.scheduler.DlqMonitor;
@@ -183,6 +186,18 @@ public abstract class IntegrationTestSupport {
         outboxRepository.deleteAllInBatch();
 
         memberRepository.deleteAllInBatch();
+    }
+
+    protected Member createMemberWithWallet(String prefix) {
+        String unique = prefix + System.currentTimeMillis();
+        Member member = MemberFixture.builder()
+                .id(null)
+                .email(unique + "@snac.com")
+                .nickname(unique)
+                .build();
+        member = memberRepository.save(member);
+        walletRepository.save(Wallet.create(member));
+        return member;
     }
 
     private void purgeAllQueues() {
