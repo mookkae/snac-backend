@@ -11,7 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -25,13 +26,21 @@ import static org.mockito.BDDMockito.given;
 @DisplayName("PaymentReconciliationProcessor 단위 테스트")
 class PaymentReconciliationProcessorTest {
 
-    @InjectMocks
     private PaymentReconciliationProcessor processor;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private PaymentRepository paymentRepository;
 
     private final Member member = MemberFixture.createMember(1L);
+
+    @BeforeEach
+    void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        processor = new PaymentReconciliationProcessor(
+                paymentRepository, meterRegistry
+        );
+    }
 
     @Nested
     @DisplayName("cancelPayment 메서드")
@@ -55,6 +64,10 @@ class PaymentReconciliationProcessorTest {
             // then
             assertThat(result).isTrue();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+
+            // 메트릭 검증
+            assertThat(meterRegistry.get("payment_reconciliation_resolved_total")
+                    .counter().count()).isEqualTo(1.0);
         }
 
         @Test

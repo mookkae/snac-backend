@@ -25,8 +25,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -48,8 +48,8 @@ import static org.mockito.Mockito.*;
 @DisplayName("MoneyServiceTest 단위 테스트")
 class MoneyServiceTest {
 
-    @InjectMocks
     private MoneyServiceImpl moneyService;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private MemberRepository memberRepository;
@@ -78,6 +78,11 @@ class MoneyServiceTest {
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        moneyService = new MoneyServiceImpl(
+                memberRepository, paymentService, paymentGatewayAdapter,
+                moneyDepositor, eventPublisher, meterRegistry
+        );
         member = MemberFixture.createMember(1L);
         pendingPayment = PaymentFixture.builder()
                 .member(member)
@@ -160,6 +165,12 @@ class MoneyServiceTest {
                         .deposit(any(Payment.class), any(Member.class), any(TossConfirmResponse.class));
                 verify(paymentGatewayAdapter, never())
                         .cancelPayment(anyString(), anyString());
+
+                // 메트릭 검증
+                assertThat(meterRegistry.get("payment_approval_total")
+                        .tag("status", "success").counter().count()).isEqualTo(1.0);
+                assertThat(meterRegistry.get("payment_approval_duration")
+                        .timer().count()).isEqualTo(1);
             }
         }
 
@@ -285,6 +296,10 @@ class MoneyServiceTest {
                 // Auto-Cancel 호출 확인 (Toss 승인 성공 후 DB 실패 → 자동 취소)
                 verify(paymentGatewayAdapter, times(1))
                         .cancelPayment(eq(PAYMENT_KEY), anyString());
+
+                // 메트릭 검증
+                assertThat(meterRegistry.get("payment_approval_total")
+                        .tag("status", "fail").counter().count()).isEqualTo(1.0);
             }
 
             @Test

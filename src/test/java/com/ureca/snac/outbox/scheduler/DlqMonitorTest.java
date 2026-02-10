@@ -6,8 +6,9 @@ import com.ureca.snac.config.RabbitMQQueue;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -33,14 +34,20 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class DlqMonitorTest {
 
-    @InjectMocks
     private DlqMonitor dlqMonitor;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private AmqpAdmin amqpAdmin;
 
     @Mock
     private SlackNotifier slackNotifier;
+
+    @BeforeEach
+    void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        dlqMonitor = new DlqMonitor(amqpAdmin, slackNotifier, meterRegistry);
+    }
 
     @Test
     @DisplayName("정상 : DLQ 메시지 -> 알림 전송")
@@ -61,6 +68,11 @@ class DlqMonitorTest {
         SlackMessage message = captor.getValue();
         assertThat(message.text()).contains("DLQ 메시지 감지");
         assertThat(message.attachments()).isNotEmpty();
+
+        // Gauge 메트릭 검증
+        assertThat(meterRegistry.get("dlq_messages_routed_total")
+                .tag("queue", RabbitMQQueue.MEMBER_JOINED_DLQ)
+                .gauge().value()).isEqualTo(5.0);
     }
 
     @Test

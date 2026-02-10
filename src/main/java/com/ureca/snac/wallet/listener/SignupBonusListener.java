@@ -6,6 +6,8 @@ import com.ureca.snac.config.RabbitMQQueue;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.wallet.event.WalletCreatedEvent;
 import com.ureca.snac.wallet.service.SignupBonusService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
@@ -25,10 +27,12 @@ public class SignupBonusListener {
 
     private final SignupBonusService signupBonusService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     // 지갑 생성 이벤트 처리
     @RabbitListener(queues = RabbitMQQueue.WALLET_CREATED_QUEUE)
     public void handleWalletCreatedEvent(String payload) {
+        String result = "success";
         Long memberId = null;
 
         try {
@@ -47,11 +51,13 @@ public class SignupBonusListener {
             log.info("[포인트 지급 리스너] 완료. 회원 ID: {}", memberId);
 
         } catch (JsonProcessingException e) {
+            result = "dlq";
             // 재시도 안 하는 예외 (JSON 파싱 실패)
             log.error("[포인트 지급 리스너] JSON 파싱 실패. 즉시 DLQ 이동. payload: {}", payload, e);
             throw new AmqpRejectAndDontRequeueException("JSON 파싱 불가", e);
 
         } catch (MemberNotFoundException e) {
+            result = "dlq";
             // 재시도 안 하는 예외 (회원 없음)
             log.error("[포인트 지급 리스너] 회원 없음. 즉시 DLQ 이동. 회원 ID: {}", memberId, e);
             throw new AmqpRejectAndDontRequeueException("회원 없음: " + memberId, e);
@@ -62,9 +68,16 @@ public class SignupBonusListener {
             // ACK 정상 처리 한다고 보냄
 
         } catch (Exception e) {
+            result = "fail";
             // 저거 말고는 일단 재시도하는 예외
             log.error("[포인트 지급 리스너] 일시적 장애 발생. 재시도 예정. 회원 ID: {}", memberId, e);
             throw e;
+
+        } finally {
+            Counter.builder("listener_message_processed_total")
+                    .tag("queue", RabbitMQQueue.WALLET_CREATED_QUEUE)
+                    .tag("result", result)
+                    .register(meterRegistry).increment();
         }
     }
 

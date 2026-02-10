@@ -1,13 +1,15 @@
 package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -20,14 +22,22 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class AsyncOutboxPublisherTest {
 
-    @InjectMocks
     private AsyncOutboxPublisher asyncOutboxPublisher;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private OutboxStatusUpdater statusUpdater;
 
     @Mock
     private OutboxMessagePublisher messagePublisher;
+
+    @BeforeEach
+    void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        asyncOutboxPublisher = new AsyncOutboxPublisher(
+                messagePublisher, statusUpdater, meterRegistry
+        );
+    }
 
     @Test
     @DisplayName("Hybrid Push : RabbitMQ 발행 성공 -> PUBLISHED 상태 업데이트")
@@ -62,6 +72,10 @@ class AsyncOutboxPublisherTest {
         // 실패 처리 안 됨
         verify(statusUpdater, never())
                 .markAsFailed(anyLong());
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "success").counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -92,6 +106,10 @@ class AsyncOutboxPublisherTest {
         // 성공 처리 안 됨
         verify(statusUpdater, never())
                 .markAsPublished(anyLong());
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "fail").counter().count()).isEqualTo(1.0);
     }
 
     @Test

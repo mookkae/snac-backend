@@ -10,6 +10,8 @@ import com.ureca.snac.payment.exception.AlreadyUsedRechargeCannotCancelException
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentInternalService paymentInternalService;
     // 잔액검증만 쓸꺼
     private final WalletService walletService;
+    private final MeterRegistry meterRegistry;
 
 
     @Override
@@ -42,55 +45,66 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     public PaymentCancelResponse cancelPayment(String paymentKey, String reason, String email) {
-        log.info("[결제 취소] 시작. 결제 ID : {}", paymentKey);
-
-        Member member = memberRepository.findByEmail(email)
-                .orElseThrow(MemberNotFoundException::new);
-
-        Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey)
-                .orElseThrow(PaymentNotFoundException::new);
-
-        long currentUserBalance = walletService.getMoneyBalance(member.getId());
-
-        if (currentUserBalance < payment.getAmount()) {
-            throw new AlreadyUsedRechargeCannotCancelException();
-        }
-
-        // Payment 객체에게 도메인 취소 검증을 위임
-        payment.validateForCancellation(member);
-        log.info("[결제 취소] 검증 통과");
-
-        // 외부 API 호출 트랜잭션 외부니까
-        log.info("[결제 취소] 외부 TOSS API 호출 시작. paymentKey : {}", paymentKey);
-        PaymentCancelResponse cancelResponse =
-                paymentGatewayAdapter.cancelPayment(paymentKey, reason);
-        log.info("[결제 취소] 외부 TOSS API 호출 성공");
+        String status = "fail";
 
         try {
-            // 책임 위임 DB 상태 변경은 내부 서비스 계층에다가
-            paymentInternalService.processCancellationInDB(payment, member, cancelResponse);
-            log.info("[결제 취소] 내부 상태 변경 완료");
-        } catch (Exception e) {
-            // 토스 취소 성공 + DB 실패 = 심각한 불일치 상태
-            // 토스는 취소 완료 상태이므로 DB를 수동으로 맞춰야 함
-            log.error("[결제 취소 보상 필요] 토스 취소 성공 but DB 실패. " +
-                            "수동 복구 필요! paymentKey: {}, memberId: {}, amount: {}, " +
-                            "canceledAt: {}, reason: {}",
-                    paymentKey,
-                    member.getId(),
-                    payment.getAmount(),
-                    cancelResponse.canceledAt(),
-                    reason,
-                    e);
+            log.info("[결제 취소] 시작. 결제 ID : {}", paymentKey);
 
-            // DB 상태 복구 시도 (Payment 상태 CANCELED + Outbox 이벤트 발행)
-            paymentInternalService.compensateCancellationFailure(payment, member, cancelResponse, e);
+            Member member = memberRepository.findByEmail(email)
+                    .orElseThrow(MemberNotFoundException::new);
 
-            // 예외를 다시 던져 사용자에게 오류 알림 (하지만 토스 취소는 이미 완료됨)
-            throw e;
+            Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey)
+                    .orElseThrow(PaymentNotFoundException::new);
+
+            long currentUserBalance = walletService.getMoneyBalance(member.getId());
+
+            if (currentUserBalance < payment.getAmount()) {
+                throw new AlreadyUsedRechargeCannotCancelException();
+            }
+
+            // Payment 객체에게 도메인 취소 검증을 위임
+            payment.validateForCancellation(member);
+            log.info("[결제 취소] 검증 통과");
+
+            // 외부 API 호출 트랜잭션 외부니까
+            log.info("[결제 취소] 외부 TOSS API 호출 시작. paymentKey : {}", paymentKey);
+            PaymentCancelResponse cancelResponse =
+                    paymentGatewayAdapter.cancelPayment(paymentKey, reason);
+            log.info("[결제 취소] 외부 TOSS API 호출 성공");
+
+            try {
+                // 책임 위임 DB 상태 변경은 내부 서비스 계층에다가
+                paymentInternalService.processCancellationInDB(payment, member, cancelResponse);
+                log.info("[결제 취소] 내부 상태 변경 완료");
+                status = "success";
+            } catch (Exception e) {
+                status = "compensated";
+                // 토스 취소 성공 + DB 실패 = 심각한 불일치 상태
+                // 토스는 취소 완료 상태이므로 DB를 수동으로 맞춰야 함
+                log.error("[결제 취소 보상 필요] 토스 취소 성공 but DB 실패. " +
+                                "수동 복구 필요! paymentKey: {}, memberId: {}, amount: {}, " +
+                                "canceledAt: {}, reason: {}",
+                        paymentKey,
+                        member.getId(),
+                        payment.getAmount(),
+                        cancelResponse.canceledAt(),
+                        reason,
+                        e);
+
+                // DB 상태 복구 시도 (Payment 상태 CANCELED + Outbox 이벤트 발행)
+                paymentInternalService.compensateCancellationFailure(payment, member, cancelResponse, e);
+
+                // 예외를 다시 던져 사용자에게 오류 알림 (하지만 토스 취소는 이미 완료됨)
+                throw e;
+            }
+
+            return cancelResponse;
+        } finally {
+            Counter.builder("payment_cancel_total")
+                    .tag("status", status)
+                    .register(meterRegistry)
+                    .increment();
         }
-
-        return cancelResponse;
     }
 
     @Override

@@ -8,6 +8,8 @@ import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.event.WalletCreatedEvent;
 import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -22,6 +24,7 @@ public class WalletServiceImpl implements WalletService {
 
     private final WalletRepository walletRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final MeterRegistry meterRegistry;
 
     @Override
     @Transactional
@@ -67,6 +70,9 @@ public class WalletServiceImpl implements WalletService {
 
         long finalBalance = wallet.getMoneyBalance();
         log.info("[머니 입금] 완료. 회원 ID : {}, 최종 머니 잔액 : {}", memberId, finalBalance);
+        Counter.builder("wallet_operation_total")
+                .tag("type", "deposit_money")
+                .register(meterRegistry).increment();
 
         return finalBalance;
     }
@@ -81,6 +87,9 @@ public class WalletServiceImpl implements WalletService {
 
         long finalBalance = wallet.getMoneyBalance();
         log.info("[머니 출금] 완료. 회원 ID: {}, 최종 잔액: {}", memberId, finalBalance);
+        Counter.builder("wallet_operation_total")
+                .tag("type", "withdraw_money")
+                .register(meterRegistry).increment();
 
         return finalBalance;
     }
@@ -139,6 +148,9 @@ public class WalletServiceImpl implements WalletService {
 
         long finalBalance = wallet.getPointBalance();
         log.info("[포인트 적립] 완료. 회원 ID: {}, 최종 잔액: {}", memberId, finalBalance);
+        Counter.builder("wallet_operation_total")
+                .tag("type", "deposit_point")
+                .register(meterRegistry).increment();
 
         return finalBalance;
 
@@ -154,6 +166,9 @@ public class WalletServiceImpl implements WalletService {
 
         long finalBalance = wallet.getPointBalance();
         log.info("[포인트 사용] 완료. 회원 ID: {}, 최종 잔액: {}", memberId, finalBalance);
+        Counter.builder("wallet_operation_total")
+                .tag("type", "withdraw_point")
+                .register(meterRegistry).increment();
 
         return finalBalance;
     }

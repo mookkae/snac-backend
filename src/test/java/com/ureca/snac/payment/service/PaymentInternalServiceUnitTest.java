@@ -17,8 +17,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -43,8 +43,8 @@ import static org.mockito.Mockito.times;
 @DisplayName("PaymentInternalServiceUnitTest 단위 테스트")
 class PaymentInternalServiceUnitTest {
 
-    @InjectMocks
     private PaymentInternalService paymentInternalService;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private PaymentRepository paymentRepository;
@@ -70,6 +70,11 @@ class PaymentInternalServiceUnitTest {
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        paymentInternalService = new PaymentInternalService(
+                paymentRepository, walletService, assetRecorder,
+                eventPublisher, memberRepository, meterRegistry
+        );
         member = MemberFixture.createMember(1L);
         payment = PaymentFixture.builder()
                 .id(1L)
@@ -116,6 +121,10 @@ class PaymentInternalServiceUnitTest {
             assertThat(capturedEvent.cancelReason()).isEqualTo(cancelResponse.reason());
             assertThat(capturedEvent.originalErrorMessage()).isEqualTo("Original DB Error");
             assertThat(capturedEvent.compensationErrorMessage()).isEqualTo("Compensation DB Error");
+
+            // 메트릭 검증
+            assertThat(meterRegistry.get("payment_compensation_triggered_total")
+                    .counter().count()).isEqualTo(1.0);
         }
 
         @Test

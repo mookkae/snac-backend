@@ -12,6 +12,7 @@ import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.payment.service.PaymentAlertService;
 import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.support.fixture.PaymentFixture;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -56,6 +57,7 @@ class PaymentReconciliationSchedulerTest {
                 paymentGatewayAdapter,
                 processor,
                 paymentAlertService,
+                new SimpleMeterRegistry(),
                 10,  // staleThresholdMinutes
                 50   // batchSize
         );

@@ -18,7 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -40,8 +40,8 @@ import static org.mockito.Mockito.*;
 @DisplayName("PaymentServiceTest 단위 테스트")
 class PaymentServiceTest {
 
-    @InjectMocks
     private PaymentServiceImpl paymentService;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private MemberRepository memberRepository;
@@ -70,6 +70,11 @@ class PaymentServiceTest {
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        paymentService = new PaymentServiceImpl(
+                memberRepository, paymentRepository, paymentGatewayAdapter,
+                paymentInternalService, walletService, meterRegistry
+        );
         member = MemberFixture.createMember(1L);
         successPayment = PaymentFixture.createSuccessPayment(member);
         cancelResponse = PaymentCancelResponseFixture.create(PAYMENT_KEY, AMOUNT, CANCEL_REASON);
@@ -122,6 +127,10 @@ class PaymentServiceTest {
                     .cancelPayment(PAYMENT_KEY, CANCEL_REASON);
             verify(paymentInternalService, times(1))
                     .processCancellationInDB(any(Payment.class), any(Member.class), any(PaymentCancelResponse.class));
+
+            // 메트릭 검증
+            assertThat(meterRegistry.get("payment_cancel_total")
+                    .tag("status", "success").counter().count()).isEqualTo(1.0);
         }
 
         @Test
@@ -153,6 +162,10 @@ class PaymentServiceTest {
                             any(PaymentCancelResponse.class),
                             any(Exception.class)
                     );
+
+            // 메트릭 검증
+            assertThat(meterRegistry.get("payment_cancel_total")
+                    .tag("status", "compensated").counter().count()).isEqualTo(1.0);
         }
 
         @Test

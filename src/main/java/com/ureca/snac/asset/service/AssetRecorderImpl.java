@@ -6,6 +6,8 @@ import com.ureca.snac.asset.repository.AssetHistoryRepository;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,7 @@ public class AssetRecorderImpl implements AssetRecorder {
 
     private final AssetHistoryRepository assetHistoryRepository;
     private final MemberRepository memberRepository;
+    private final MeterRegistry meterRegistry;
 
     @Override
     public void recordMoneyRecharge(Long memberId, Long paymentId, Long amount, Long balanceAfter) {
@@ -117,6 +120,9 @@ public class AssetRecorderImpl implements AssetRecorder {
         String idempotencyKey = history.getIdempotencyKey();
         if (assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)) {
             log.warn("[자산 내역 기록] 중복 요청 무시 (멱등성). idempotencyKey: {}", idempotencyKey);
+            Counter.builder("idempotency_duplicate_blocked_total")
+                    .register(meterRegistry)
+                    .increment();
             return;
         }
 
