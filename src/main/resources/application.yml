@@ -186,6 +186,18 @@ aes:
   salt: ${AES_SALT}
 
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 logging:
   level:
     com.ureca.snac.auth.config.SecurityConfig: DEBUG
