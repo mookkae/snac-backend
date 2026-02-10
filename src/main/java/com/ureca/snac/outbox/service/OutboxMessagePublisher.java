@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 메시지 발행 공통 컴포넌트
- * OutboxPublisher, AsyncOutboxPublisher에서 위임하여 사용
+ * OutboxPollingScheduler, AsyncOutboxPublisher에서 위임하여 사용
  * AggregateType/EventType 변환 + 메시지 발행 + 헤더 설정
  */
 @Slf4j

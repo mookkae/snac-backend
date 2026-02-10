@@ -1,14 +1,18 @@
-package com.ureca.snac.outbox.service;
+package com.ureca.snac.outbox.scheduler;
 
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.outbox.repository.OutboxRepository;
+import com.ureca.snac.outbox.service.OutboxMessagePublisher;
+import com.ureca.snac.outbox.service.OutboxStatusUpdater;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,12 +25,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 3. Pure Polling 대상 이벤트 발행 (거래 등 순서 보장 필요)
  */
 @Slf4j
-@Service
-public class OutboxPublisher {
+@Component
+public class OutboxPollingScheduler {
 
     private final OutboxRepository outboxRepository;
     private final OutboxMessagePublisher messagePublisher;
     private final OutboxStatusUpdater statusUpdater;
+    private final MeterRegistry meterRegistry;
 
     private final int batchSize;
     private final int staleThresholdMinutes;
@@ -35,10 +40,11 @@ public class OutboxPublisher {
     // 종료 요청 플래그 (AtomicBoolean으로 스레드 안전성 보장)
     private final AtomicBoolean shutdownRequested = new AtomicBoolean(false);
 
-    public OutboxPublisher(
+    public OutboxPollingScheduler(
             OutboxRepository outboxRepository,
             OutboxMessagePublisher messagePublisher,
             OutboxStatusUpdater statusUpdater,
+            MeterRegistry meterRegistry,
             @Value("${outbox.publisher.batch-size}") int batchSize,
             @Value("${outbox.publisher.stale-threshold-minutes}") int staleThresholdMinutes,
             @Value("${outbox.publisher.max-retry}") int maxRetryCount
@@ -46,6 +52,7 @@ public class OutboxPublisher {
         this.outboxRepository = outboxRepository;
         this.messagePublisher = messagePublisher;
         this.statusUpdater = statusUpdater;
+        this.meterRegistry = meterRegistry;
         this.batchSize = batchSize;
         this.staleThresholdMinutes = staleThresholdMinutes;
         this.maxRetryCount = maxRetryCount;
@@ -102,6 +109,12 @@ public class OutboxPublisher {
                 statusUpdater.markAsPublished(outbox.getId());
                 publishedCount++;
 
+                Counter.builder("outbox_events_published_total")
+                        .tag("result", "success")
+                        .register(meterRegistry).increment();
+                Counter.builder("outbox_polling_recovery_total")
+                        .register(meterRegistry).increment();
+
                 log.debug("[Outbox Scheduler] 발행 성공. outboxId: {}, eventId: {}, eventType: {}",
                         outbox.getId(), outbox.getEventId(), outbox.getEventType());
 
@@ -109,6 +122,10 @@ public class OutboxPublisher {
                 // 실패 기록 (독립 트랜잭션)
                 statusUpdater.markAsFailed(outbox.getId());
                 failedCount++;
+
+                Counter.builder("outbox_events_published_total")
+                        .tag("result", "fail")
+                        .register(meterRegistry).increment();
 
                 log.error("[Outbox Scheduler] 발행 실패. outboxId: {}, eventId: {}, retryCount: {}, error: {}",
                         outbox.getId(), outbox.getEventId(), outbox.getRetryCount() + 1, e.getMessage());

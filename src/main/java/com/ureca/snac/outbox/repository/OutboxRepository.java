@@ -82,7 +82,7 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
      * INIT 또는 SEND_FAIL 상태 경쟁 상태(Race Condition) 방지
      * <p>
      * AsyncOutboxPublisher: INIT에서 PUBLISHED
-     * OutboxPublisher (스케줄러): SEND_FAIL, INIT에서 PUBLISHED
+     * OutboxPollingScheduler: SEND_FAIL, INIT에서 PUBLISHED
      *
      * @param id  Outbox ID
      * @param now 발행 시각
