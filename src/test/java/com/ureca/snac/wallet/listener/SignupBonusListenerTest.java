@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.support.fixture.EventFixture;
 import com.ureca.snac.wallet.service.SignupBonusService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
@@ -26,16 +28,19 @@ import static org.mockito.Mockito.*;
 class SignupBonusListenerTest {
 
     private SignupBonusListener signupBonusListener;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private SignupBonusService signupBonusService;
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
         ObjectMapper objectMapper = new ObjectMapper();
         signupBonusListener = new SignupBonusListener(
                 signupBonusService,
-                objectMapper
+                objectMapper,
+                meterRegistry
         );
     }
 
@@ -53,6 +58,10 @@ class SignupBonusListenerTest {
         // then
         verify(signupBonusService, times(1))
                 .grantSignupBonus(memberId);
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("listener_message_processed_total")
+                .tag("result", "success").counter().count()).isEqualTo(1.0);
     }
 
     @Test

@@ -8,6 +8,8 @@ import com.ureca.snac.member.event.MemberJoinEvent;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.wallet.service.WalletService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
@@ -28,10 +30,12 @@ public class WalletCreationListener {
     private final MemberRepository memberRepository;
     private final WalletService walletService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     // 회원가입 이벤트 처리
     @RabbitListener(queues = RabbitMQQueue.MEMBER_JOINED_QUEUE)
     public void handleMemberJoinEvent(String payload) {
+        String result = "success";
         Long memberId = null;
 
         try {
@@ -49,14 +53,29 @@ public class WalletCreationListener {
             log.info("[지갑 생성] 완료. 회원 ID: {}", memberId);
 
         } catch (JsonProcessingException e) {
+            result = "dlq";
             // 재시도 안 하는 예외 (JSON 파싱 실패)
             log.error("[지갑 생성] JSON 파싱 실패. 즉시 DLQ 이동. payload: {}", payload, e);
             throw new AmqpRejectAndDontRequeueException("JSON 파싱 불가", e);
+
+        } catch (AmqpRejectAndDontRequeueException e) {
+            result = "dlq";
+            throw e;
 
         } catch (DataIntegrityViolationException e) {
             // 동시성으로 인한 중복 생성
             log.warn("[지갑 생성] 이미 존재하는 지갑 (동시성) 중복 생성 방지. 회원 ID : {}", memberId);
             // ACK 정상 처리 한다고 보냄
+
+        } catch (Exception e) {
+            result = "fail";
+            throw e;
+
+        } finally {
+            Counter.builder("listener_message_processed_total")
+                    .tag("queue", RabbitMQQueue.MEMBER_JOINED_QUEUE)
+                    .tag("result", result)
+                    .register(meterRegistry).increment();
         }
     }
 

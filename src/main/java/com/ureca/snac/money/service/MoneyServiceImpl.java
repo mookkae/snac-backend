@@ -12,6 +12,9 @@ import com.ureca.snac.money.dto.MoneyRechargeSuccessResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.event.alert.AutoCancelFailureEvent;
 import com.ureca.snac.payment.service.PaymentService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -38,6 +41,7 @@ public class MoneyServiceImpl implements MoneyService {
     private final MoneyDepositor moneyDepositor;
     // 이벤트 발행
     private final ApplicationEventPublisher eventPublisher;
+    private final MeterRegistry meterRegistry;
 
     @Override
     @Transactional
@@ -74,34 +78,48 @@ public class MoneyServiceImpl implements MoneyService {
     public MoneyRechargeSuccessResponse processRechargeSuccess(
             String paymentKey, String orderId, Long amount, String email) {
 
-        log.info("[머니 충전 처리] 시작. 주문 번호 : {}, 요청 금액 : {}", orderId, amount);
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String status = "success";
 
-        Member member = memberRepository.findByEmail(email)
-                .orElseThrow(MemberNotFoundException::new);
-
-        // 1. 트랜잭션 내에서 Payment 검증
-        Payment payment = paymentService.findAndValidateForConfirmation(orderId, amount, member);
-
-        // 2. 트랜잭션 밖에서 Toss 승인 요청
-        // 예외 전파 시 Toss가 승인하지 않았으므로 돈이 빠지지 않아 취소 불필요.
-        TossConfirmResponse tossConfirmResponse =
-                paymentGatewayAdapter.confirmPayment(paymentKey, orderId, amount);
-
-        // 3. 여기 도달 = Toss 승인 완료 (돈 빠짐!)
-        // 이제부터 실패하면 반드시 Auto-Cancel 필요
         try {
-            // DB 저장 시도
-            moneyDepositor.deposit(payment, member, tossConfirmResponse);
+            log.info("[머니 충전 처리] 시작. 주문 번호 : {}, 요청 금액 : {}", orderId, amount);
+
+            Member member = memberRepository.findByEmail(email)
+                    .orElseThrow(MemberNotFoundException::new);
+
+            // 1. 트랜잭션 내에서 Payment 검증
+            Payment payment = paymentService.findAndValidateForConfirmation(orderId, amount, member);
+
+            // 2. 트랜잭션 밖에서 Toss 승인 요청
+            // 예외 전파 시 Toss가 승인하지 않았으므로 돈이 빠지지 않아 취소 불필요.
+            TossConfirmResponse tossConfirmResponse =
+                    paymentGatewayAdapter.confirmPayment(paymentKey, orderId, amount);
+
+            // 3. 여기 도달 = Toss 승인 완료 (돈 빠짐!)
+            // 이제부터 실패하면 반드시 Auto-Cancel 필요
+            try {
+                // DB 저장 시도
+                moneyDepositor.deposit(payment, member, tossConfirmResponse);
+            } catch (Exception e) {
+                // Toss 성공 -> 우리 DB 실패 Auto-Cancel
+                log.error("[결제 누락 위험] Toss 승인 완료 but DB 실패. Auto-Cancel 시도. orderId: {}", orderId);
+
+                autoCancelAfterConfirmSuccess(payment, tossConfirmResponse.paymentKey(), e);
+                throw new InternalServerException(PAYMENT_INTERNAL_ERROR);
+            }
+            log.info("[머니 충전 처리 완료] 모든 프로세스 종료");
+
+            return MoneyRechargeSuccessResponse.of(orderId, paymentKey, amount);
         } catch (Exception e) {
-            // Toss 성공 -> 우리 DB 실패 Auto-Cancel
-            log.error("[결제 누락 위험] Toss 승인 완료 but DB 실패. Auto-Cancel 시도. orderId: {}", orderId);
-
-            autoCancelAfterConfirmSuccess(payment, tossConfirmResponse.paymentKey(), e);
-            throw new InternalServerException(PAYMENT_INTERNAL_ERROR);
+            status = "fail";
+            throw e;
+        } finally {
+            sample.stop(Timer.builder("payment_approval_duration").register(meterRegistry));
+            Counter.builder("payment_approval_total")
+                    .tag("status", status)
+                    .register(meterRegistry)
+                    .increment();
         }
-        log.info("[머니 충전 처리 완료] 모든 프로세스 종료");
-
-        return MoneyRechargeSuccessResponse.of(orderId, paymentKey, amount);
     }
 
     // Toss 승인 성공 후 Auto-Cancel 실패 시 이벤트 발행

@@ -12,6 +12,8 @@ import com.ureca.snac.payment.event.alert.CompensationFailureEvent;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -30,6 +32,7 @@ public class PaymentInternalService {
     private final AssetRecorder assetRecorder;
     private final ApplicationEventPublisher eventPublisher;
     private final MemberRepository memberRepository;
+    private final MeterRegistry meterRegistry;
 
     /**
      * 결제 취소에 따른 내부 DB 상태 변경 책임
@@ -78,6 +81,10 @@ public class PaymentInternalService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void compensateCancellationFailure(Payment payment, Member member,
                                               PaymentCancelResponse cancelResponse, Exception originalError) {
+        Counter.builder("payment_compensation_triggered_total")
+                .register(meterRegistry)
+                .increment();
+
         try {
             log.warn("[결제 취소 보상] Payment 상태 복구 및 보상 이벤트 발행 시도. paymentId: {}",
                     payment.getId());

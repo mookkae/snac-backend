@@ -13,9 +13,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -31,8 +31,8 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class AssetRecorderTest {
 
-    @InjectMocks
     private AssetRecorderImpl assetRecorder;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private AssetHistoryRepository assetHistoryRepository;
@@ -47,6 +47,10 @@ class AssetRecorderTest {
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        assetRecorder = new AssetRecorderImpl(
+                assetHistoryRepository, memberRepository, meterRegistry
+        );
         member = MemberFixture.createMember(1L);
 
         lenient().when(memberRepository.findById(member.getId())).thenReturn(Optional.of(member));
@@ -320,6 +324,10 @@ class AssetRecorderTest {
 
             // then
             verify(assetHistoryRepository, never()).save(any());
+
+            // 메트릭 검증
+            assertThat(meterRegistry.get("idempotency_duplicate_blocked_total")
+                    .counter().count()).isEqualTo(1.0);
         }
     }
 }

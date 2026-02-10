@@ -4,16 +4,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
 import com.ureca.snac.payment.service.PaymentInternalService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
 import java.time.OffsetDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
@@ -23,14 +25,22 @@ import static org.mockito.Mockito.verify;
 @DisplayName("PaymentCancelCompensationListener 단위 테스트")
 class PaymentCancelCompensationListenerTest {
 
-    @InjectMocks
     private PaymentCancelCompensationListener listener;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private PaymentInternalService paymentInternalService;
 
     @Mock
     private ObjectMapper objectMapper;
+
+    @BeforeEach
+    void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        listener = new PaymentCancelCompensationListener(
+                paymentInternalService, objectMapper, meterRegistry
+        );
+    }
 
     @Test
     @DisplayName("성공 : 유효한 JSON -> processCompensation 호출")
@@ -48,6 +58,10 @@ class PaymentCancelCompensationListenerTest {
 
         // then
         verify(paymentInternalService).processCompensation(event);
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("listener_message_processed_total")
+                .tag("result", "success").counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -63,6 +77,10 @@ class PaymentCancelCompensationListenerTest {
         // when, then
         assertThatThrownBy(() -> listener.handleCompensationEvent(invalidPayload))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("listener_message_processed_total")
+                .tag("result", "dlq").counter().count()).isEqualTo(1.0);
     }
 
     @Test

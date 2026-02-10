@@ -4,6 +4,8 @@ import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentReconciliationProcessor {
 
     private final PaymentRepository paymentRepository;
+    private final MeterRegistry meterRegistry;
 
     /**
      * 결제를 취소 상태로 변경 (멱등성 보장)
@@ -35,6 +38,9 @@ public class PaymentReconciliationProcessor {
         }
 
         payment.cancel(cancelReason);
+        Counter.builder("payment_reconciliation_resolved_total")
+                .register(meterRegistry)
+                .increment();
         log.info("[대사] 결제 로컬 취소 완료. paymentId: {}, reason: {}", paymentId, cancelReason);
         return true;
     }

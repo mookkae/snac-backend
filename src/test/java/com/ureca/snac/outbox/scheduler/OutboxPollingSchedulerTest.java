@@ -1,9 +1,12 @@
-package com.ureca.snac.outbox.service;
+package com.ureca.snac.outbox.scheduler;
 
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.outbox.fixture.OutboxFixture;
 import com.ureca.snac.outbox.repository.OutboxRepository;
+import com.ureca.snac.outbox.service.OutboxMessagePublisher;
+import com.ureca.snac.outbox.service.OutboxStatusUpdater;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -16,12 +19,13 @@ import org.springframework.data.domain.PageRequest;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
 
 /**
- * OutboxPublisher 스케줄러 단위 테스트
+ * OutboxPollingScheduler 스케줄러 단위 테스트
  * <p>
  * SEND_FAIL 이벤트 재발행
  * 오래된 INIT 이벤트 재발행 (서버 장애 복구)
@@ -30,9 +34,10 @@ import static org.mockito.Mockito.*;
  * 실패 시 상태 업데이트
  */
 @ExtendWith(MockitoExtension.class)
-class OutboxPublisherTest {
+class OutboxPollingSchedulerTest {
 
-    private OutboxPublisher outboxPublisher;
+    private OutboxPollingScheduler outboxPublisher;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private OutboxRepository outboxRepository;
@@ -49,10 +54,12 @@ class OutboxPublisherTest {
 
     @BeforeEach
     void setUp() {
-        outboxPublisher = new OutboxPublisher(
+        meterRegistry = new SimpleMeterRegistry();
+        outboxPublisher = new OutboxPollingScheduler(
                 outboxRepository,
                 messagePublisher,
                 outboxStatusUpdater,
+                meterRegistry,
                 BATCH_SIZE,
                 STALE_THRESHOLD_MINUTES,
                 MAX_RETRY_COUNT
@@ -91,6 +98,12 @@ class OutboxPublisherTest {
         // 실패 처리 없음
         verify(outboxStatusUpdater, never())
                 .markAsFailed(anyLong());
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "success").counter().count()).isEqualTo(2.0);
+        assertThat(meterRegistry.get("outbox_polling_recovery_total")
+                .counter().count()).isEqualTo(2.0);
     }
 
     @Test
@@ -165,6 +178,10 @@ class OutboxPublisherTest {
         // PUBLISHED 업데이트 안 됨
         verify(outboxStatusUpdater, never())
                 .markAsPublished(anyLong());
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "fail").counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -198,6 +215,12 @@ class OutboxPublisherTest {
         // 실패 1개
         verify(outboxStatusUpdater, times(1))
                 .markAsFailed(2L);
+
+        // 메트릭 검증 (부분 실패)
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "success").counter().count()).isEqualTo(2.0);
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "fail").counter().count()).isEqualTo(1.0);
     }
 
     @Test

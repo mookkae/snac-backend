@@ -8,6 +8,8 @@ import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
 import com.ureca.snac.outbox.exception.OutboxSerializationException;
 import com.ureca.snac.outbox.repository.OutboxRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -30,6 +32,7 @@ public class OutboxEventListener {
     private final OutboxRepository outboxRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     /**
      * Hybrid Push 대상 이벤트 화이트리스트
@@ -63,6 +66,9 @@ public class OutboxEventListener {
             );
 
             outboxRepository.save(outbox);
+            Counter.builder("outbox_events_saved_total")
+                    .register(meterRegistry)
+                    .increment();
 
             log.info("[Outbox] 이벤트 저장 완료. outboxId: {}, eventType: {}",
                     outbox.getId(), outbox.getEventType());

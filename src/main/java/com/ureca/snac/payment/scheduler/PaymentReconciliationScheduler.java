@@ -8,6 +8,8 @@ import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.exception.TossRetryableException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.payment.service.PaymentAlertService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,6 +36,7 @@ public class PaymentReconciliationScheduler {
     private final PaymentGatewayAdapter paymentGatewayAdapter;
     private final PaymentReconciliationProcessor processor;
     private final PaymentAlertService paymentAlertService;
+    private final MeterRegistry meterRegistry;
     private final int staleThresholdMinutes;
     private final int batchSize;
 
@@ -42,6 +45,7 @@ public class PaymentReconciliationScheduler {
             PaymentGatewayAdapter paymentGatewayAdapter,
             PaymentReconciliationProcessor processor,
             PaymentAlertService paymentAlertService,
+            MeterRegistry meterRegistry,
             @Value("${reconciliation.scheduler.stale-threshold-minutes}") int staleThresholdMinutes,
             @Value("${reconciliation.scheduler.batch-size}") int batchSize
     ) {
@@ -49,6 +53,7 @@ public class PaymentReconciliationScheduler {
         this.paymentGatewayAdapter = paymentGatewayAdapter;
         this.processor = processor;
         this.paymentAlertService = paymentAlertService;
+        this.meterRegistry = meterRegistry;
         this.staleThresholdMinutes = staleThresholdMinutes;
         this.batchSize = batchSize;
     }

@@ -5,6 +5,8 @@ import com.ureca.snac.common.notification.dto.SlackAttachment;
 import com.ureca.snac.common.notification.dto.SlackField;
 import com.ureca.snac.common.notification.dto.SlackMessage;
 import com.ureca.snac.config.RabbitMQQueue;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -17,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * DLQ 모니터링 서비스
@@ -32,9 +35,12 @@ public class DlqMonitor {
 
     private final AmqpAdmin amqpAdmin;
     private final SlackNotifier slackNotifier;
+    private final MeterRegistry meterRegistry;
 
     // 중복 알림 방지용 (큐별 마지막 알림 개수)
     private final Map<String, Integer> lastAlertedCount = new ConcurrentHashMap<>();
+    // DLQ Gauge 값 저장용
+    private final Map<String, AtomicInteger> dlqGaugeValues = new ConcurrentHashMap<>();
 
     // DLQ 모니터링 (1분마다)
     @Scheduled(fixedDelayString = "${outbox.dlq-monitor.interval}")
@@ -49,9 +55,26 @@ public class DlqMonitor {
         }
     }
 
+    // DLQ Gauge 업데이트
+    private void updateDlqGauge(String queueName, int count) {
+        dlqGaugeValues.computeIfAbsent(queueName, key -> {
+            AtomicInteger value = new AtomicInteger(0);
+            Gauge.builder("dlq_messages_routed_total", value, AtomicInteger::get)
+                    .tag("queue", key)
+                    .register(meterRegistry);
+            return value;
+        }).set(count);
+    }
+
     // 큐 확인 및 알림 -> 개수 변화 있을 때만 알림 전송
     private void checkAndAlert(String queueName, String domain) {
         Integer currentCount = getMessageCount(queueName);
+
+        // Gauge 업데이트
+        if (currentCount != null) {
+            updateDlqGauge(queueName, currentCount);
+        }
+
         Integer lastCount = lastAlertedCount.get(queueName);
 
         if (currentCount != null && currentCount > 0) {

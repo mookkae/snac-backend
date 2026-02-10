@@ -6,6 +6,7 @@ import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.support.fixture.EventFixture;
 import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.wallet.service.WalletService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -32,6 +34,7 @@ import static org.mockito.Mockito.*;
 class WalletCreationListenerTest {
 
     private WalletCreationListener walletCreationListener;
+    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private MemberRepository memberRepository;
@@ -41,11 +44,13 @@ class WalletCreationListenerTest {
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
         ObjectMapper objectMapper = new ObjectMapper();
         walletCreationListener = new WalletCreationListener(
                 memberRepository,
                 walletService,
-                objectMapper
+                objectMapper,
+                meterRegistry
         );
     }
 
@@ -69,6 +74,10 @@ class WalletCreationListenerTest {
 
         verify(walletService, times(1))
                 .createWallet(member);
+
+        // 메트릭 검증
+        assertThat(meterRegistry.get("listener_message_processed_total")
+                .tag("result", "success").counter().count()).isEqualTo(1.0);
     }
 
     @Test

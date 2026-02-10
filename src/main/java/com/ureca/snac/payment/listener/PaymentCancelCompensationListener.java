@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.config.RabbitMQQueue;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
 import com.ureca.snac.payment.service.PaymentInternalService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
@@ -25,9 +27,11 @@ public class PaymentCancelCompensationListener {
 
     private final PaymentInternalService paymentInternalService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     @RabbitListener(queues = RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE)
     public void handleCompensationEvent(String payload) {
+        String result = "success";
         Long paymentId = null;
         Long memberId = null;
 
@@ -47,13 +51,21 @@ public class PaymentCancelCompensationListener {
             log.info("[결제 취소 보상] 완료. paymentId: {}, memberId: {}", paymentId, memberId);
 
         } catch (JsonProcessingException e) {
+            result = "dlq";
             log.error("[결제 취소 보상] JSON 파싱 실패. 즉시 DLQ 이동. payload: {}", payload, e);
             throw new AmqpRejectAndDontRequeueException("JSON 파싱 불가", e);
 
         } catch (Exception e) {
+            result = "fail";
             log.error("[결제 취소 보상] 일시적 장애 발생. 재시도 예정. paymentId: {}, memberId: {}",
                     paymentId, memberId, e);
             throw e;
+
+        } finally {
+            Counter.builder("listener_message_processed_total")
+                    .tag("queue", RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE)
+                    .tag("result", result)
+                    .register(meterRegistry).increment();
         }
     }
 

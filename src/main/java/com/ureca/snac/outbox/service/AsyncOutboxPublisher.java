@@ -2,6 +2,8 @@ package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.config.AsyncConfig;
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -22,6 +24,7 @@ public class AsyncOutboxPublisher {
 
     private final OutboxMessagePublisher messagePublisher;
     private final OutboxStatusUpdater statusUpdater;
+    private final MeterRegistry meterRegistry;
 
     /**
      * Outbox 이벤트를 즉시 발행 (Hybrid Push)
@@ -48,12 +51,20 @@ public class AsyncOutboxPublisher {
             // 2. 상태 업데이트 (짧은 트랜잭션 - 원자적 업데이트)
             statusUpdater.markAsPublished(event.outboxId());
 
+            Counter.builder("outbox_events_published_total")
+                    .tag("result", "success")
+                    .register(meterRegistry).increment();
+
             log.info("[Async Push] 발행 완료. outboxId: {}, eventId: {}, aggregateId: {}",
                     event.outboxId(), event.eventId(), event.aggregateId());
 
         } catch (Exception e) {
             log.error("[Async Push] 발행 실패. 재시도 카운트 증가. outboxId: {}, eventId: {}, error: {}",
                     event.outboxId(), event.eventId(), e.getMessage());
+
+            Counter.builder("outbox_events_published_total")
+                    .tag("result", "fail")
+                    .register(meterRegistry).increment();
 
             // 실패 기록 (SEND_FAIL, retryCount++)
             // 스케줄러가 다음 주기에 즉시 재시도
