@@ -129,6 +129,9 @@ spring:
     port: ${RABBITMQ_PORT}
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
+    # Publisher Confirms: 브로커 수신 확인 (Outbox 메시지 유실 방지)
+    publisher-confirm-type: correlated
+    publisher-returns: true
     # Connection Recovery 설정
     connection-timeout: 10000
     requested-heartbeat: 60             # 60초마다 하트비트
