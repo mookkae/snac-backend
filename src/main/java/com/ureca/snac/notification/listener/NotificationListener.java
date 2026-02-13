@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
-@Profile("!scheduler")
+@Profile("!scheduler & !loadtest")
 @RequiredArgsConstructor
 public class NotificationListener {
     private final SimpMessagingTemplate messaging;

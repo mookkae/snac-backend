@@ -41,7 +41,7 @@ import static com.ureca.snac.trade.entity.TradeStatus.PAYMENT_CONFIRMED;
 
 @Slf4j
 @Component
-@Profile("!scheduler")
+@Profile("!scheduler & !loadtest")
 @RequiredArgsConstructor
 public class WebSocketTradeEventListener {
 

@@ -1,0 +1,33 @@
+# 부하 테스트 전용 프로필 설정
+# 실행: java -jar app.jar --spring.profiles.active=loadtest
+
+spring:
+  main:
+    allow-bean-definition-overriding: true
+
+# Toss Mock 사용 (TossPaymentsClient 빈 생성 방지용 더미 값)
+payments:
+  toss:
+    url: "http://mock-unused"
+    secret-key: "mock-unused-key"
+
+# 장애 주입 설정
+loadtest:
+  fault:
+    deposit-failure-rate: 0.0     # 기본 비활성. Performance Test 시 JVM 인자로 활성화: -Dloadtest.fault.deposit-failure-rate=0.10
+    cancel-failure-rate: 0.0      # 기본 비활성. Performance Test 시 JVM 인자로 활성화: -Dloadtest.fault.cancel-failure-rate=0.02
+
+# 대사 스케줄러 부하 테스트에서 빠르게 동작하도록 조정
+reconciliation:
+  scheduler:
+    cron: "0 */2 * * * *"                  # 2분마다 실행
+    stale-threshold-minutes: 2             # 2분 이상 PENDING이면 대사 대상
+    batch-size: 100
+
+# Outbox Polling : 기본값 유지 (1초)
+outbox:
+  publisher:
+    fixed-delay-ms: 1000
+    max-retry: 300                        # RabbitMQ 장애 2분(120회 재시도) 이상 커버
+    batch-size: 100
+    stale-threshold-minutes: 1

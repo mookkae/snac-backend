@@ -18,7 +18,7 @@ import java.util.List;
 
 @Slf4j
 @Component
-@Profile("scheduler")
+@Profile("!loadtest")
 @RequiredArgsConstructor
 public class TradeStatisticsScheduler {
 

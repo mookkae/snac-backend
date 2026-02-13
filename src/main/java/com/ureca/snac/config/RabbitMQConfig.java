@@ -380,6 +380,7 @@ public class RabbitMQConfig {
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, Jackson2JsonMessageConverter converter) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
         template.setMessageConverter(converter);
+        template.setMandatory(true);  // 라우팅 불가 메시지 반환 감지 (publisher-returns와 연동)
         return template;
     }
 

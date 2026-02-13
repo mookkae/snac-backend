@@ -38,3 +38,7 @@ out/
 
 .env
 docker-compose.yml
+
+### nGrinder (부하 테스트 도구) ###
+ngrinder/
+docker-compose-ngrinder.yml

@@ -20,7 +20,7 @@ import static java.time.Duration.between;
 
 @Slf4j
 @Component
-@Profile("scheduler")
+@Profile("!loadtest")
 @RequiredArgsConstructor
 public class TradeDurationScheduler {
 
