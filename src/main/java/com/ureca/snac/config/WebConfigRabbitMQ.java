@@ -4,7 +4,6 @@ import com.ureca.snac.auth.util.JWTUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -27,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 import static com.ureca.snac.common.RedisKeyConstants.WS_CONNECTED_PREFIX;
 
 @Configuration
-@Profile("!scheduler")
+@Profile("!loadtest")
 @EnableWebSocketMessageBroker
 @RequiredArgsConstructor
 public class WebConfigRabbitMQ implements WebSocketMessageBrokerConfigurer {

@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Primary
 @Component
+@Profile("!loadtest")
 @RequiredArgsConstructor
 public class TossPaymentsAdapter implements PaymentGatewayAdapter {
 
