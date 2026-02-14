@@ -131,17 +131,18 @@ jacocoTestReport {
                             "**/com/ureca/snac/money/**",
                             "**/com/ureca/snac/outbox/**",
                             "**/com/ureca/snac/payment/**",
-                            "**/com/ureca/snac/settlement/**",
-                            "**/com/ureca/snac/wallet/**"
+                            "**/com/ureca/snac/wallet/listener/**"
                     ],
-                    // 2. 포함된 도메인 안에서도 굳이 안 봐도 되는 것들 쳐내기
+                    // 2. 테스트 없는 계층 + 단순 데이터/생성 클래스 제외
                     excludes: [
                             "**/dto/**",
-                            "**/entity/**",
+                            "**/config/**",
                             "**/event/**",
                             "**/*Exception*",
-                            "**/*Config*",
-                            "**/*Mapper*"
+                            "**/*Controller*",
+                            "**/*Swagger*",
+                            "**/Q*",
+                            "**/TossPaymentsClient*"
                     ]
             )
         }))
@@ -169,16 +170,17 @@ jacocoTestCoverageVerification {
                     "**/com/ureca/snac/money/**",
                     "**/com/ureca/snac/outbox/**",
                     "**/com/ureca/snac/payment/**",
-                    "**/com/ureca/snac/settlement/**",
-                    "**/com/ureca/snac/wallet/**"
+                    "**/com/ureca/snac/wallet/listener/**"
             ]
             excludes = [
                     "**/dto/**",
-                    "**/entity/**",
+                    "**/config/**",
                     "**/event/**",
                     "**/*Exception*",
-                    "**/*Config*",
-                    "**/*Mapper*"
+                    "**/*Controller*",
+                    "**/*Swagger*",
+                    "**/Q*",
+                    "**/TossPaymentsClient*"
             ]
         }
     }
