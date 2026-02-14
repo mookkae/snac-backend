@@ -10,8 +10,6 @@ import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.entity.MoneyRecharge;
 import com.ureca.snac.money.service.MoneyService;
 import com.ureca.snac.payment.entity.Payment;
-import com.ureca.snac.payment.entity.PaymentMethod;
-import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
 import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.payment.service.PaymentService;
@@ -32,7 +30,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 
 /**
@@ -57,7 +56,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     private Member member;
 
     private static final Long RECHARGE_AMOUNT = 10000L;
-    private static final int THREAD_COUNT = 5;
+    private static final int THREAD_COUNT = 50;
 
     @BeforeEach
     void setUpMember() {
@@ -69,7 +68,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     class ConfirmConcurrencyTest {
 
         @Test
-        @DisplayName("동시성 : 동일 orderId N건 동시 승인 → Wallet 1회만 증가")
+        @DisplayName("동시성 : 동일 orderId N건 동시 승인 -> Wallet 1회만 증가")
         void shouldAllowOnlyOneConfirmation() throws InterruptedException {
             // given
             MoneyRechargePreparedResponse prepared = prepareRecharge();
@@ -108,7 +107,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     class CancelConcurrencyTest {
 
         @Test
-        @DisplayName("동시성 : 동일 paymentKey N건 동시 취소 → Wallet 출금 1회만")
+        @DisplayName("동시성 : 동일 paymentKey N건 동시 취소 -> Wallet 출금 1회만")
         void shouldAllowOnlyOneCancellation() throws InterruptedException {
             // given: 충전 완료
             String paymentKey = "conc_cancel_pk_" + System.currentTimeMillis();
@@ -145,7 +144,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     class CompensationConcurrencyTest {
 
         @Test
-        @DisplayName("동시성 : processCompensation N건 동시 호출 → Wallet 출금 1회만")
+        @DisplayName("동시성 : processCompensation N건 동시 호출 -> Wallet 출금 1회만")
         void shouldAllowOnlyOneCompensation() throws InterruptedException {
             // given: 충전 완료된 결제를 CANCELED 상태로 변경 (토스 취소 성공 상태 시뮬레이션)
             String paymentKey = "conc_comp_pk_" + System.currentTimeMillis();
@@ -207,13 +206,13 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
 
         for (Future<?> future : futures) {
             try {
-                future.get(10, TimeUnit.SECONDS);
+                future.get(30, TimeUnit.SECONDS);
             } catch (ExecutionException | TimeoutException ignored) {
             }
         }
 
         executor.shutdown();
-        executor.awaitTermination(15, TimeUnit.SECONDS);
+        executor.awaitTermination(45, TimeUnit.SECONDS);
     }
 
     private MoneyRechargePreparedResponse prepareRecharge() {
