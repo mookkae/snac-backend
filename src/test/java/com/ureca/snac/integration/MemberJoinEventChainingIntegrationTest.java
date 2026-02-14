@@ -17,6 +17,8 @@ import com.ureca.snac.wallet.event.WalletCreatedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.QueueInformation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
@@ -51,6 +53,8 @@ import static org.mockito.BDDMockito.given;
  */
 @DisplayName("회원가입 이벤트 체이닝 통합 테스트")
 class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
+
+    private static final Logger log = LoggerFactory.getLogger(MemberJoinEventChainingIntegrationTest.class);
 
     @Autowired
     private JoinService joinService;
@@ -147,9 +151,12 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
              */
             // when : RabbitMQ 재시작
             rabbitMQ.execInContainer("rabbitmqctl", "start_app");
+            long recoveryStartNanos = System.nanoTime();
 
             // then 5 : 스케줄러가 돌아서 PUBLISHED 로 대기
             waitForOutboxStatus(member.getId(), AggregateType.MEMBER, EventType.MEMBER_JOIN, OutboxStatus.PUBLISHED);
+            long recoveryElapsedMs = (System.nanoTime() - recoveryStartNanos) / 1_000_000;
+            log.info("Outbox Recovery Time: {}ms", recoveryElapsedMs);
 
             // then 6 : 지갑 생성 확인
             Wallet wallet = waitForWallet(member.getId());
@@ -251,7 +258,7 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("시나리오 6 : JSON 파싱 실패 → DLQ")
+    @DisplayName("시나리오 6 : JSON 파싱 실패 -> DLQ")
     void scenario6_InvalidJson_SendToDLQ() throws Exception {
         // given : 잘못된 JSON 형식의 메시지
         String invalidJson = "{\"invalidField\":\"value\",\"broken:json}";
