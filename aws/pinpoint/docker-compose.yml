@@ -12,6 +12,7 @@ services:
   pinpoint-collector:
     image: pinpointdocker/pinpoint-collector:3.0.0
     container_name: pinpoint-collector
+    restart: on-failure
     depends_on:
       - pinpoint-hbase
     ports:
@@ -30,6 +31,7 @@ services:
   pinpoint-web:
     image: pinpointdocker/pinpoint-web:3.0.0
     container_name: pinpoint-web
+    restart: on-failure
     depends_on:
       - pinpoint-hbase
     ports:

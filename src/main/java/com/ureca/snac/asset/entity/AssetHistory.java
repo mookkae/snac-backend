@@ -16,9 +16,9 @@ import java.time.format.DateTimeFormatter;
                 // 월별 조회
                 @Index(name = "idx_asset_history_member_asset_ym_created",
                         columnList = "member_id, asset_type, tx_year_month, created_at DESC"),
-                // 전체 조회 보조인덱스
-                @Index(name = "idx_asset_history_member_asset_created",
-                        columnList = "member_id, asset_type, created_at DESC")
+                // 전체 조회 (커서 기반 페이지네이션 — created_at DESC, id DESC 정렬 커버)
+                @Index(name = "idx_asset_history_member_asset_created_id",
+                        columnList = "member_id, asset_type, created_at DESC, asset_history_id DESC")
         },
         // 멱등키 유니크 제약
         uniqueConstraints = {
