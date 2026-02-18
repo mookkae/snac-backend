@@ -16,9 +16,8 @@ systemctl start docker
 usermod -aG docker ec2-user
 
 # Docker Compose v2 플러그인 설치
-DOCKER_COMPOSE_VERSION="v2.29.1"
 mkdir -p /usr/local/lib/docker/cli-plugins
-curl -fSL "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+curl -fSL "https://github.com/docker/compose/releases/download/v2.29.1/docker-compose-linux-x86_64" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
