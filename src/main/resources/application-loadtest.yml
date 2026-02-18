@@ -4,6 +4,10 @@
 spring:
   main:
     allow-bean-definition-overriding: true
+  datasource:
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
 
 # Toss Mock 사용 (TossPaymentsClient 빈 생성 방지용 더미 값)
 payments:
