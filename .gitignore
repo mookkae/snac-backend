@@ -37,8 +37,8 @@ out/
 .vscode/
 
 .env
-docker-compose.yml
+/docker-compose.yml
 
 ### nGrinder (부하 테스트 도구) ###
-ngrinder/
+/ngrinder/
 docker-compose-ngrinder.yml

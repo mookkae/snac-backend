@@ -1,0 +1,10 @@
+FROM eclipse-temurin:11-jre-focal
+
+ARG WAR_URL=https://github.com/naver/ngrinder/releases/download/ngrinder-3.5.9-p1-20240613/ngrinder-controller-3.5.9-p1.war
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+RUN curl -fL -o /opt/ngrinder-controller.war ${WAR_URL}
+
+EXPOSE 8080 16001 12000-12009
+
+ENTRYPOINT ["java", "-jar", "/opt/ngrinder-controller.war", "--port=8080"]

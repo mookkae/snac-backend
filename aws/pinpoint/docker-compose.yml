@@ -1,0 +1,46 @@
+services:
+  pinpoint-hbase:
+    image: pinpointdocker/pinpoint-hbase:3.0.0
+    container_name: pinpoint-hbase
+    ports:
+      - "16010:16010"
+      - "16030:16030"
+    volumes:
+      - hbase_data:/home/pinpoint/hbase
+      - hbase_zk_data:/home/pinpoint/zookeeper
+
+  pinpoint-collector:
+    image: pinpointdocker/pinpoint-collector:3.0.0
+    container_name: pinpoint-collector
+    depends_on:
+      - pinpoint-hbase
+    ports:
+      - "9991:9991"
+      - "9992:9992"
+      - "9993:9993"
+      - "9994:9994/tcp"
+      - "9994:9994/udp"
+      - "9995:9995/udp"
+    environment:
+      - CLUSTER_ENABLE=false
+      - HBASE_HOST=pinpoint-hbase
+      - HBASE_PORT=2181
+      - FLINK_CLUSTER_ENABLE=false
+
+  pinpoint-web:
+    image: pinpointdocker/pinpoint-web:3.0.0
+    container_name: pinpoint-web
+    depends_on:
+      - pinpoint-hbase
+    ports:
+      - "28080:8080"
+    environment:
+      - CLUSTER_ENABLE=false
+      - HBASE_HOST=pinpoint-hbase
+      - HBASE_PORT=2181
+      - FLINK_CLUSTER_ENABLE=false
+      - ADMIN_PASSWORD=admin
+
+volumes:
+  hbase_data:
+  hbase_zk_data:

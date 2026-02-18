@@ -1,0 +1,28 @@
+services:
+  redis:
+    image: redis:8.4.0
+    container_name: snac-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: snac-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "61613:61613"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    command: >
+      /bin/sh -c "rabbitmq-plugins enable --offline rabbitmq_stomp && rabbitmq-server"
+
+volumes:
+  redis_data:
+  rabbitmq_data:

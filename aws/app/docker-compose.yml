@@ -1,0 +1,38 @@
+services:
+  app:
+    image: eclipse-temurin:17-jre
+    container_name: snac-app
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../.env
+    environment:
+      - SPRING_PROFILES_ACTIVE=loadtest
+      - JAVA_OPTS=-Xms512m -Xmx1g -javaagent:/pinpoint-agent/pinpoint-bootstrap.jar -Dpinpoint.agentId=snac-app-1 -Dpinpoint.applicationName=snac-backend -Dpinpoint.profiler.transport.grpc.collector.ip={PINPOINT_IP}
+    volumes:
+      - ./app.jar:/app/app.jar
+      - pinpoint_agent:/pinpoint-agent
+    working_dir: /app
+    command: >
+      sh -c "java $${JAVA_OPTS} -jar app.jar"
+    depends_on:
+      pinpoint-agent-downloader:
+        condition: service_completed_successfully
+
+  # Pinpoint Agent JAR 다운로드용 init container
+  pinpoint-agent-downloader:
+    image: alpine:3.19
+    volumes:
+      - pinpoint_agent:/pinpoint-agent
+    command: >
+      sh -c "
+        if [ ! -f /pinpoint-agent/pinpoint-bootstrap.jar ]; then
+          apk add --no-cache curl tar &&
+          curl -fSL https://github.com/pinpoint-apm/pinpoint/releases/download/v3.0.0/pinpoint-agent-3.0.0.tar.gz -o /tmp/agent.tar.gz &&
+          tar -xzf /tmp/agent.tar.gz -C /pinpoint-agent --strip-components=1 &&
+          rm /tmp/agent.tar.gz;
+        fi
+      "
+
+volumes:
+  pinpoint_agent:

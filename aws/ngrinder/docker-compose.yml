@@ -1,0 +1,23 @@
+services:
+  controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.controller
+    container_name: snac-ngrinder-controller
+    ports:
+      - "9000:8080"
+      - "16001:16001"
+      - "12000-12009:12000-12009"
+    volumes:
+      - ngrinder_controller_data:/root/.ngrinder-controller
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: snac-ngrinder-agent
+    depends_on:
+      - controller
+
+volumes:
+  ngrinder_controller_data:
