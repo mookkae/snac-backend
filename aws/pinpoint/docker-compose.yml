@@ -8,6 +8,10 @@ services:
     volumes:
       - hbase_data:/home/pinpoint/hbase
       - hbase_zk_data:/home/pinpoint/zookeeper
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
 
   pinpoint-collector:
     image: pinpointdocker/pinpoint-collector:3.0.0
@@ -26,6 +30,11 @@ services:
       - HBASE_HOST=pinpoint-hbase
       - HBASE_PORT=2181
       - FLINK_CLUSTER_ENABLE=false
+      - JAVA_OPTS=-Xms256m -Xmx512m
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
   pinpoint-web:
     image: pinpointdocker/pinpoint-web:3.0.0
@@ -40,6 +49,11 @@ services:
       - HBASE_PORT=2181
       - FLINK_CLUSTER_ENABLE=false
       - ADMIN_PASSWORD=admin
+      - JAVA_OPTS=-Xms256m -Xmx512m
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
 volumes:
   hbase_data:
