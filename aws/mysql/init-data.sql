@@ -9,7 +9,7 @@
 INSERT INTO member (email, password, name, nickname, phone, birth_date, rating_score, role, activated, created_at, updated_at)
 VALUES (
     'loadtest@test.com',
-    '$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG',
+    '$2a$10$9fS7OaZZjDEcuSM6VMLoUemJpPJk4NSyIzCzM48mD2q6zC6jJpAcW',
     '부하테스터',
     'loadtester',
     '01000000000',
