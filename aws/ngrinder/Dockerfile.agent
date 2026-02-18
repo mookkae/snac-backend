@@ -1,13 +1,9 @@
 FROM eclipse-temurin:11-jre-focal
 
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY agent.tar /tmp/agent.tar
+RUN tar -xf /tmp/agent.tar -C /opt && rm /tmp/agent.tar
 
-CMD sh -c "\
-  echo 'Waiting for controller...' && \
-  until curl -sf http://controller:8080/login > /dev/null 2>&1; do sleep 5; done && \
-  echo 'Downloading agent...' && \
-  curl -f -o /tmp/agent.tar http://controller:8080/agent/download/ngrinder-agent-3.5.9-p1-localhost.tar && \
-  tar -xf /tmp/agent.tar -C /opt && rm /tmp/agent.tar && \
-  sed -i 's/agent.controller_host=.*/agent.controller_host=controller/' /opt/ngrinder-agent/__agent.conf && \
-  rm -f /root/.ngrinder_agent/pid.ngrinder && \
-  /opt/ngrinder-agent/run_agent.sh"
+RUN sed -i 's/agent.controller_host=.*/agent.controller_host=controller/' \
+    /opt/ngrinder-agent/__agent.conf
+
+CMD rm -f /root/.ngrinder_agent/pid.ngrinder && /opt/ngrinder-agent/run_agent.sh
