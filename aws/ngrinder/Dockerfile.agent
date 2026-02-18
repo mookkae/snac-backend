@@ -6,7 +6,7 @@ CMD sh -c "\
   echo 'Waiting for controller...' && \
   until curl -sf http://controller:8080/login > /dev/null 2>&1; do sleep 5; done && \
   echo 'Downloading agent...' && \
-  curl -fL -o /tmp/agent.tar http://controller:8080/agent/download/ngrinder-agent-3.5.9-p1-localhost.tar && \
+  curl -f -o /tmp/agent.tar http://controller:8080/agent/download/ngrinder-agent-3.5.9-p1-localhost.tar && \
   tar -xf /tmp/agent.tar -C /opt && rm /tmp/agent.tar && \
   sed -i 's/agent.controller_host=.*/agent.controller_host=controller/' /opt/ngrinder-agent/__agent.conf && \
   rm -f /root/.ngrinder_agent/pid.ngrinder && \
