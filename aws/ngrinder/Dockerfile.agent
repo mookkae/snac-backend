@@ -1,14 +1,13 @@
 FROM eclipse-temurin:11-jre-focal
 
-ARG AGENT_URL=https://github.com/naver/ngrinder/releases/download/ngrinder-3.5.9-p1-20240613/ngrinder-agent-3.5.9-p1.tar
-
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-RUN curl -fL -o /tmp/agent.tar ${AGENT_URL} \
-    && tar -xf /tmp/agent.tar -C /opt \
-    && rm /tmp/agent.tar
 
-# Agent가 같은 EC2의 Controller에 연결 (localhost)
-RUN sed -i 's/agent.controller_host=.*/agent.controller_host=controller/' \
-    /opt/ngrinder-agent/__agent.conf
-
-CMD rm -f /root/.ngrinder_agent/pid.ngrinder && /opt/ngrinder-agent/run_agent.sh
+CMD sh -c "\
+  echo 'Waiting for controller...' && \
+  until curl -sf http://controller:8080/login > /dev/null 2>&1; do sleep 5; done && \
+  echo 'Downloading agent...' && \
+  curl -fL -o /tmp/agent.tar http://controller:8080/agent/download/ngrinder-agent-3.5.9-p1-localhost.tar && \
+  tar -xf /tmp/agent.tar -C /opt && rm /tmp/agent.tar && \
+  sed -i 's/agent.controller_host=.*/agent.controller_host=controller/' /opt/ngrinder-agent/__agent.conf && \
+  rm -f /root/.ngrinder_agent/pid.ngrinder && \
+  /opt/ngrinder-agent/run_agent.sh"
