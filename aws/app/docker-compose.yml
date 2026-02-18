@@ -8,7 +8,7 @@ services:
       - ../.env
     environment:
       - SPRING_PROFILES_ACTIVE=loadtest
-      - JAVA_OPTS=-Xms512m -Xmx1g -javaagent:/pinpoint-agent/pinpoint-bootstrap.jar -Dpinpoint.agentId=snac-app-1 -Dpinpoint.applicationName=snac-backend -Dpinpoint.profiler.transport.grpc.collector.ip={PINPOINT_IP}
+      - JAVA_OPTS=-Xms512m -Xmx1g -javaagent:/pinpoint-agent/pinpoint-bootstrap-2.5.4.jar -Dpinpoint.agentId=snac-app-1 -Dpinpoint.applicationName=snac-backend -Dpinpoint.profiler.transport.grpc.collector.ip=172.31.11.198
     volumes:
       - ./app.jar:/app/app.jar
       - pinpoint_agent:/pinpoint-agent
@@ -19,16 +19,15 @@ services:
       pinpoint-agent-downloader:
         condition: service_completed_successfully
 
-  # Pinpoint Agent JAR 다운로드용 init container
   pinpoint-agent-downloader:
     image: alpine:3.19
     volumes:
       - pinpoint_agent:/pinpoint-agent
     command: >
       sh -c "
-        if [ ! -f /pinpoint-agent/pinpoint-bootstrap.jar ]; then
+        if [ ! -f /pinpoint-agent/pinpoint-bootstrap-2.5.4.jar ]; then
           apk add --no-cache curl tar &&
-          curl -fSL https://github.com/pinpoint-apm/pinpoint/releases/download/v3.0.0/pinpoint-agent-3.0.0.tar.gz -o /tmp/agent.tar.gz &&
+          curl -fSL https://github.com/pinpoint-apm/pinpoint/releases/download/v2.5.4/pinpoint-agent-2.5.4.tar.gz -o /tmp/agent.tar.gz &&
           tar -xzf /tmp/agent.tar.gz -C /pinpoint-agent --strip-components=1 &&
           rm /tmp/agent.tar.gz;
         fi
