@@ -8,7 +8,7 @@ services:
       - ../.env
     environment:
       - SPRING_PROFILES_ACTIVE=loadtest
-      - JAVA_OPTS=-Xms512m -Xmx1g -javaagent:/pinpoint-agent/pinpoint-bootstrap-2.5.4.jar -Dpinpoint.agentId=snac-app-1 -Dpinpoint.applicationName=snac-backend -Dpinpoint.profiler.transport.grpc.collector.ip=172.31.11.198
+      - JAVA_OPTS=-Xms512m -Xmx1g -javaagent:/pinpoint-agent/pinpoint-bootstrap-2.5.4.jar -Dpinpoint.agentId=snac-app-1 -Dpinpoint.applicationName=snac-backend -Dprofiler.transport.grpc.collector.ip=172.31.11.198 -Dprofiler.collector.ip=172.31.11.198
     volumes:
       - ./app.jar:/app/app.jar
       - pinpoint_agent:/pinpoint-agent
