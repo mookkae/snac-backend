@@ -68,4 +68,13 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findStalePendingPayments(@Param("status") PaymentStatus status,
                                            @Param("threshold") LocalDateTime threshold,
                                            Pageable pageable);
+
+    /**
+     * 여러 상태의 stale 결제 건 조회 (PENDING, CANCEL_REQUESTED)
+     * updatedAt 사용: CANCEL_REQUESTED는 상태 변경 시점 기준으로 stale 판단
+     */
+    @Query("select p from Payment p join fetch p.member where p.status in :statuses and p.updatedAt < :threshold")
+    List<Payment> findStalePayments(@Param("statuses") List<PaymentStatus> statuses,
+                                    @Param("threshold") LocalDateTime threshold,
+                                    Pageable pageable);
 }

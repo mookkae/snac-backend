@@ -92,6 +92,84 @@ class PaymentInternalServiceUnitTest {
     }
 
     @Nested
+    @DisplayName("markAsCancelRequested 메서드")
+    class MarkAsCancelRequestedTest {
+
+        @Test
+        @DisplayName("성공 : SUCCESS → CANCEL_REQUESTED 전환")
+        void markAsCancelRequested_HappyPath() {
+            // given
+            Payment successPayment = PaymentFixture.builder()
+                    .id(1L)
+                    .member(member)
+                    .amount(AMOUNT)
+                    .status(PaymentStatus.SUCCESS)
+                    .paymentKey(PAYMENT_KEY)
+                    .build();
+
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(successPayment));
+
+            // when
+            paymentInternalService.markAsCancelRequested(1L);
+
+            // then
+            assertThat(successPayment.getStatus()).isEqualTo(PaymentStatus.CANCEL_REQUESTED);
+        }
+    }
+
+    @Nested
+    @DisplayName("completeCancellationForReconciliation 메서드")
+    class CompleteCancellationForReconciliationTest {
+
+        @Test
+        @DisplayName("성공 : CANCEL_REQUESTED → CANCELED + Wallet 회수 + AssetHistory 기록")
+        void completeCancellationForReconciliation_HappyPath() {
+            // given
+            Payment cancelRequestedPayment = PaymentFixture.builder()
+                    .id(1L)
+                    .member(member)
+                    .amount(AMOUNT)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .paymentKey(PAYMENT_KEY)
+                    .build();
+
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(cancelRequestedPayment));
+            given(walletService.withdrawMoney(member.getId(), AMOUNT)).willReturn(5000L);
+
+            // when
+            paymentInternalService.completeCancellationForReconciliation(1L, "대사 취소");
+
+            // then
+            assertThat(cancelRequestedPayment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+            verify(walletService, times(1)).withdrawMoney(member.getId(), AMOUNT);
+            verify(assetRecorder, times(1)).recordMoneyRechargeCancel(
+                    member.getId(), 1L, AMOUNT, 5000L);
+        }
+
+        @Test
+        @DisplayName("멱등성 : 이미 CANCELED → Wallet 미호출, 조기 반환")
+        void completeCancellationForReconciliation_AlreadyCanceled_Skips() {
+            // given
+            Payment canceledPayment = PaymentFixture.builder()
+                    .id(1L)
+                    .member(member)
+                    .amount(AMOUNT)
+                    .status(PaymentStatus.CANCELED)
+                    .paymentKey(PAYMENT_KEY)
+                    .build();
+
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(canceledPayment));
+
+            // when
+            paymentInternalService.completeCancellationForReconciliation(1L, "대사 취소");
+
+            // then
+            verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
+            verify(assetRecorder, never()).recordMoneyRechargeCancel(anyLong(), anyLong(), anyLong(), anyLong());
+        }
+    }
+
+    @Nested
     @DisplayName("compensateCancellationFailure 메서드")
     class CompensateCancellationFailureTest {
 

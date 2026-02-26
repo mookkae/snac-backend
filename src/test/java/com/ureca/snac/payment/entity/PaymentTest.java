@@ -114,6 +114,49 @@ class PaymentTest {
     }
 
     @Nested
+    @DisplayName("requestCancellation 메서드")
+    class RequestCancellationTest {
+
+        @Test
+        @DisplayName("성공 : SUCCESS -> CANCEL_REQUESTED 전환")
+        void requestCancellation_FromSuccess_TransitionsToCancelRequested() {
+            // given
+            Payment payment = PaymentFixture.createSuccessPayment(member);
+
+            // when
+            payment.requestCancellation();
+
+            // then
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCEL_REQUESTED);
+        }
+
+        @Test
+        @DisplayName("실패 : PENDING 상태에서 requestCancellation 호출")
+        void requestCancellation_FromPending_ThrowsException() {
+            // given
+            Payment payment = Payment.prepare(member, 10000L);
+
+            // when, then
+            assertThatThrownBy(() -> payment.requestCancellation())
+                    .isInstanceOf(PaymentNotCancellableException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCELED 상태에서 requestCancellation 호출")
+        void requestCancellation_FromCanceled_ThrowsException() {
+            // given
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCELED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.requestCancellation())
+                    .isInstanceOf(PaymentNotCancellableException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("cancel 메서드")
     class CancelTest {
 
@@ -142,6 +185,23 @@ class PaymentTest {
 
             // then
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        }
+
+        @Test
+        @DisplayName("성공 : CANCEL_REQUESTED -> CANCELED 전환")
+        void cancel_FromCancelRequested_TransitionsToCanceled() {
+            // given
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .build();
+
+            // when
+            payment.cancel("대사 취소");
+
+            // then
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+            assertThat(payment.getCancelReason()).isEqualTo("대사 취소");
         }
 
         @Test

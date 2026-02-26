@@ -123,6 +123,8 @@ class PaymentServiceTest {
             paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, EMAIL);
 
             // then
+            verify(paymentInternalService, times(1))
+                    .markAsCancelRequested(successPayment.getId());
             verify(paymentGatewayAdapter, times(1))
                     .cancelPayment(PAYMENT_KEY, CANCEL_REASON);
             verify(paymentInternalService, times(1))

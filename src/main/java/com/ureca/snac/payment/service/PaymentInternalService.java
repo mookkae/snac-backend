@@ -35,6 +35,44 @@ public class PaymentInternalService {
     private final MeterRegistry meterRegistry;
 
     /**
+     * 취소 의도를 DB에 기록 (SUCCESS → CANCEL_REQUESTED)
+     * Toss API 호출 전에 호출하여, JVM 크래시 시에도 대사 스케줄러가 감지 가능
+     */
+    @Transactional
+    public void markAsCancelRequested(Long paymentId) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(PaymentNotFoundException::new);
+        payment.requestCancellation();
+        log.info("[취소 의도 기록] Payment 상태 CANCEL_REQUESTED 변경 완료. paymentId: {}", paymentId);
+    }
+
+    /**
+     * 대사 스케줄러용 취소 완료 처리
+     * CANCEL_REQUESTED 상태의 결제를 CANCELED로 전환하고 Wallet 머니 회수 + AssetHistory 기록
+     */
+    @Transactional
+    public void completeCancellationForReconciliation(Long paymentId, String cancelReason) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(PaymentNotFoundException::new);
+
+        // 이미 취소된 경우 조기 반환 (멱등성)
+        if (payment.getStatus() == PaymentStatus.CANCELED) {
+            log.warn("[대사 취소 완료] 이미 취소된 결제. 중복 처리 방지. paymentId: {}", paymentId);
+            return;
+        }
+
+        payment.cancel(cancelReason);
+        log.info("[대사 취소 완료] Payment 상태 CANCELED 변경 완료. paymentId: {}", paymentId);
+
+        Member member = payment.getMember();
+        Long balanceAfter = walletService.withdrawMoney(member.getId(), payment.getAmount());
+        log.info("[대사 취소 완료] 지갑 머니 회수 완료. memberId: {}, balanceAfter: {}", member.getId(), balanceAfter);
+
+        assetRecorder.recordMoneyRechargeCancel(member.getId(), paymentId, payment.getAmount(), balanceAfter);
+        log.info("[대사 취소 완료] 자산 변동 기록 완료. paymentId: {}", paymentId);
+    }
+
+    /**
      * 결제 취소에 따른 내부 DB 상태 변경 책임
      * 토스페이먼츠 결제 취소 성공 후 호출
      *

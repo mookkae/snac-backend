@@ -66,6 +66,10 @@ public class PaymentServiceImpl implements PaymentService {
             payment.validateForCancellation(member);
             log.info("[결제 취소] 검증 통과");
 
+            // 취소 의도 기록 (SUCCESS → CANCEL_REQUESTED)
+            paymentInternalService.markAsCancelRequested(payment.getId());
+            log.info("[결제 취소] 취소 의도 DB 기록 완료");
+
             // 외부 API 호출 트랜잭션 외부니까
             log.info("[결제 취소] 외부 TOSS API 호출 시작. paymentKey : {}", paymentKey);
             PaymentCancelResponse cancelResponse =
