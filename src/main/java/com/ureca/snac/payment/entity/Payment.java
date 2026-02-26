@@ -76,6 +76,14 @@ public class Payment extends BaseTimeEntity {
         this.status = PaymentStatus.SUCCESS;
     }
 
+    // 취소 의도 기록 (SUCCESS → CANCEL_REQUESTED)
+    public void requestCancellation() {
+        if (this.status != PaymentStatus.SUCCESS) {
+            throw new PaymentNotCancellableException();
+        }
+        this.status = PaymentStatus.CANCEL_REQUESTED;
+    }
+
     // 상태 취소
     public void cancel(String reason) {
         if (this.status == PaymentStatus.CANCELED) {

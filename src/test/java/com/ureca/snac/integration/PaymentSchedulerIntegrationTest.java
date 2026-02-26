@@ -11,6 +11,7 @@ import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.exception.TossRetryableException;
 import com.ureca.snac.payment.scheduler.PaymentReconciliationScheduler;
+import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.support.IntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -209,7 +210,86 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
         }
     }
 
+    @Nested
+    @DisplayName("CANCEL_REQUESTED 대사")
+    class CancelRequestedReconciliationTest {
+
+        @Test
+        @DisplayName("성공 : CANCEL_REQUESTED + Toss DONE → Toss 취소 + Wallet 회수 + CANCELED")
+        void shouldCompleteCancellationForCancelRequestedWithTossDone() {
+            // given
+            Payment stalePayment = createStaleCancelRequestedPayment();
+            String orderId = stalePayment.getOrderId();
+
+            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResponse("pk_cr_done", orderId, "DONE"));
+
+            Long balanceBefore = getWalletMoneyBalance(member.getId());
+
+            // when
+            scheduler.reconcileStalePendingPayments();
+
+            // then: payment.getPaymentKey() (DB에 저장된 키)로 취소 호출
+            verify(paymentGatewayAdapter).cancelPayment(eq(stalePayment.getPaymentKey()), anyString());
+
+            Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
+            assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+
+            Long balanceAfter = getWalletMoneyBalance(member.getId());
+            assertThat(balanceAfter).isEqualTo(balanceBefore - RECHARGE_AMOUNT);
+        }
+
+        @Test
+        @DisplayName("성공 : CANCEL_REQUESTED + Toss CANCELED → Toss 취소 스킵 + Wallet 회수 + CANCELED")
+        void shouldCompleteCancellationForCancelRequestedWithTossCanceled() {
+            // given
+            Payment stalePayment = createStaleCancelRequestedPayment();
+            String orderId = stalePayment.getOrderId();
+
+            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResponse("pk_cr_canceled", orderId, "CANCELED"));
+
+            Long balanceBefore = getWalletMoneyBalance(member.getId());
+
+            // when
+            scheduler.reconcileStalePendingPayments();
+
+            // then: Toss cancel 미호출
+            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
+
+            Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
+            assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+
+            Long balanceAfter = getWalletMoneyBalance(member.getId());
+            assertThat(balanceAfter).isEqualTo(balanceBefore - RECHARGE_AMOUNT);
+        }
+    }
+
     // ================= Helper ====================
+
+    private Payment createStaleCancelRequestedPayment() {
+        // 충전 완료 (SUCCESS 상태) → CANCEL_REQUESTED로 변경
+        String paymentKey = "pk_cr_" + System.currentTimeMillis();
+        MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+        mockTossConfirm(paymentKey);
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+
+        // CANCEL_REQUESTED로 변경 + updatedAt을 과거로
+        jdbcTemplate.update(
+                "UPDATE payment SET status = 'CANCEL_REQUESTED', updated_at = ? WHERE payment_id = ?",
+                LocalDateTime.now().minusMinutes(30), payment.getId());
+
+        return paymentRepository.findById(payment.getId()).orElseThrow();
+    }
+
+    private Long getWalletMoneyBalance(Long memberId) {
+        Wallet wallet = walletRepository.findByMemberId(memberId).orElseThrow();
+        return wallet.getMoneyBalance();
+    }
 
     private Payment createStalePendingPayment() {
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
@@ -226,8 +306,8 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
     private void setStaleCreatedAt(Long paymentId) {
         LocalDateTime pastTime = LocalDateTime.now().minusMinutes(30);
         jdbcTemplate.update(
-                "UPDATE payment SET created_at = ? WHERE payment_id = ?",
-                pastTime, paymentId);
+                "UPDATE payment SET created_at = ?, updated_at = ? WHERE payment_id = ?",
+                pastTime, pastTime, paymentId);
     }
 
     private void mockTossConfirm(String paymentKey) {

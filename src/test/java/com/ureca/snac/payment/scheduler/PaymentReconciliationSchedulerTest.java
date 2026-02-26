@@ -10,6 +10,7 @@ import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.exception.TossRetryableException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.payment.service.PaymentAlertService;
+import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.support.fixture.PaymentFixture;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -46,6 +47,9 @@ class PaymentReconciliationSchedulerTest {
     private PaymentReconciliationProcessor processor;
 
     @Mock
+    private PaymentInternalService paymentInternalService;
+
+    @Mock
     private PaymentAlertService paymentAlertService;
 
     private final Member member = MemberFixture.createMember(1L);
@@ -56,6 +60,7 @@ class PaymentReconciliationSchedulerTest {
                 paymentRepository,
                 paymentGatewayAdapter,
                 processor,
+                paymentInternalService,
                 paymentAlertService,
                 new SimpleMeterRegistry(),
                 10,  // staleThresholdMinutes
@@ -71,8 +76,8 @@ class PaymentReconciliationSchedulerTest {
         @DisplayName("미결 결제 없음 -> 조기 종료")
         void shouldEarlyExitWhenNoStalePayments() {
             // given
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), eq(PageRequest.of(0, 50))))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), eq(PageRequest.of(0, 50))))
                     .willReturn(List.of());
 
             // when
@@ -88,8 +93,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(1L, "order_1");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
@@ -114,8 +119,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(2L, "order_2");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
@@ -141,8 +146,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(3L, "order_3");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
@@ -165,8 +170,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(4L, "order_4");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             given(paymentGatewayAdapter.inquirePaymentByOrderId("order_4"))
@@ -185,8 +190,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(5L, "order_5");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             given(paymentGatewayAdapter.inquirePaymentByOrderId("order_5"))
@@ -206,8 +211,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(6L, "order_6");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
@@ -233,8 +238,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(8L, "order_8");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
@@ -258,8 +263,8 @@ class PaymentReconciliationSchedulerTest {
             // given
             Payment payment = createStalePendingPayment(7L, "order_7");
 
-            given(paymentRepository.findStalePendingPayments(
-                    eq(PaymentStatus.PENDING), any(), any()))
+            given(paymentRepository.findStalePayments(
+                    any(), any(), any()))
                     .willReturn(List.of(payment));
 
             TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
@@ -276,12 +281,78 @@ class PaymentReconciliationSchedulerTest {
         }
     }
 
+    @Nested
+    @DisplayName("CANCEL_REQUESTED 대사 처리")
+    class ReconcileCancelRequestedTest {
+
+        @Test
+        @DisplayName("CANCEL_REQUESTED + Toss DONE → Toss 취소 + completeCancellationForReconciliation")
+        void shouldCompleteCancellationForCancelRequestedWithTossDone() {
+            // given
+            Payment payment = createCancelRequestedPayment(10L, "order_10", "pk_10");
+
+            given(paymentRepository.findStalePayments(any(), any(), any()))
+                    .willReturn(List.of(payment));
+
+            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
+                    "pk_10", "order_10", "DONE", "카드", 10000L, OffsetDateTime.now());
+
+            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_10"))
+                    .willReturn(tossResponse);
+
+            // when
+            scheduler.reconcileStalePendingPayments();
+
+            // then
+            verify(paymentGatewayAdapter).cancelPayment(eq("pk_10"), anyString());
+            verify(paymentInternalService).completeCancellationForReconciliation(eq(10L), anyString());
+            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_10");
+            // PENDING 전용 processor는 호출하지 않음
+            verifyNoInteractions(processor);
+        }
+
+        @Test
+        @DisplayName("CANCEL_REQUESTED + Toss CANCELED → Toss 취소 스킵 + completeCancellationForReconciliation")
+        void shouldCompleteCancellationForCancelRequestedWithTossCanceled() {
+            // given
+            Payment payment = createCancelRequestedPayment(11L, "order_11", "pk_11");
+
+            given(paymentRepository.findStalePayments(any(), any(), any()))
+                    .willReturn(List.of(payment));
+
+            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
+                    "pk_11", "order_11", "CANCELED", "카드", 10000L, null);
+
+            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_11"))
+                    .willReturn(tossResponse);
+
+            // when
+            scheduler.reconcileStalePendingPayments();
+
+            // then
+            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
+            verify(paymentInternalService).completeCancellationForReconciliation(eq(11L), anyString());
+            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_11");
+            verifyNoInteractions(processor);
+        }
+    }
+
     private Payment createStalePendingPayment(Long id, String orderId) {
         return PaymentFixture.builder()
                 .id(id)
                 .member(member)
                 .orderId(orderId)
                 .status(PaymentStatus.PENDING)
+                .build();
+    }
+
+    private Payment createCancelRequestedPayment(Long id, String orderId, String paymentKey) {
+        return PaymentFixture.builder()
+                .id(id)
+                .member(member)
+                .orderId(orderId)
+                .paymentKey(paymentKey)
+                .status(PaymentStatus.CANCEL_REQUESTED)
                 .build();
     }
 }
