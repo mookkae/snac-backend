@@ -1,7 +1,23 @@
 services:
+  zoo1:
+    image: zookeeper:3.4
+    container_name: zoo1
+
+  zoo2:
+    image: zookeeper:3.4
+    container_name: zoo2
+
+  zoo3:
+    image: zookeeper:3.4
+    container_name: zoo3
+
   pinpoint-hbase:
     image: pinpointdocker/pinpoint-hbase:2.5.4
     container_name: pinpoint-hbase
+    depends_on:
+      - zoo1
+      - zoo2
+      - zoo3
     ports:
       - "16010:16010"
       - "16030:16030"
