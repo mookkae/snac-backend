@@ -6,7 +6,7 @@
 |------|------------|--------|-------------------|
 | **MySQL** | t3.medium | MySQL 8.0 | 3306 (App EC2) |
 | **RabbitMQ + Redis** | t3.medium | RabbitMQ, Redis | 5672, 15672, 61613, 6379 (App EC2) |
-| **Pinpoint** | t3.large | HBase, Collector, Web | 9991-9995 (App EC2), 28080 (내 IP) |
+| **Pinpoint** | t3.large | HBase, Collector, Web | 9991-9995 (App EC2), 8080 (내 IP) |
 | **App (SUT)** | t3.medium | Spring Boot + Pinpoint Agent | 8080 (nGrinder EC2, Monitoring EC2) |
 | **Monitoring** | t3.small | Prometheus, Grafana | 9090, 3000 (내 IP) |
 | **nGrinder** | t3.medium | Controller, Agent | 9000 (내 IP) |
@@ -98,7 +98,7 @@ docker compose -f aws/pinpoint/docker-compose.yml up -d
 
 확인 (HBase 초기화에 1~2분 소요):
 ```bash
-curl -s http://localhost:28080 | head -1
+curl -s http://localhost:8080 | head -1
 ```
 
 ### Step 4: App EC2 — 1차 기동 (테이블 생성)

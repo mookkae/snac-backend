@@ -1,6 +1,6 @@
 FROM eclipse-temurin:11-jre-focal
 
-COPY agent.tar /tmp/agent.tar
+COPY ngrinder/agent/agent.tar /tmp/agent.tar
 RUN tar -xf /tmp/agent.tar -C /opt && rm /tmp/agent.tar
 
 RUN sed -i 's/agent.controller_host=.*/agent.controller_host=controller/' \

@@ -13,8 +13,8 @@ services:
 
   agent:
     build:
-      context: .
-      dockerfile: Dockerfile.agent
+      context: ../../
+      dockerfile: aws/ngrinder/Dockerfile.agent
     container_name: snac-ngrinder-agent
     depends_on:
       - controller
