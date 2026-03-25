@@ -271,3 +271,11 @@ retry:
   slack:
     max-attempts: ${RETRY_SLACK_MAX_ATTEMPTS}
     delay: ${RETRY_SLACK_DELAY}
+  trade:
+    max-attempts: ${RETRY_TRADE_MAX_ATTEMPTS}
+    delay: ${RETRY_TRADE_DELAY}
+    multiplier: ${RETRY_TRADE_MULTIPLIER}
+  settlement:
+    max-attempts: ${RETRY_SETTLEMENT_MAX_ATTEMPTS}
+    delay: ${RETRY_SETTLEMENT_DELAY}
+    multiplier: ${RETRY_SETTLEMENT_MULTIPLIER}

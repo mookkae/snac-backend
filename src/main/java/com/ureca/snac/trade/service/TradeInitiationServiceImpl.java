@@ -4,36 +4,42 @@ import com.ureca.snac.asset.entity.AssetType;
 import com.ureca.snac.asset.service.AssetRecorder;
 import com.ureca.snac.board.entity.Card;
 import com.ureca.snac.board.entity.constants.SellStatus;
-import com.ureca.snac.board.exception.*;
+import com.ureca.snac.board.exception.CardNotFoundException;
 import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.trade.controller.request.ClaimBuyRequest;
 import com.ureca.snac.trade.controller.request.CreateRealTimeTradePaymentRequest;
 import com.ureca.snac.trade.controller.request.CreateRealTimeTradeRequest;
 import com.ureca.snac.trade.controller.request.CreateTradeRequest;
 import com.ureca.snac.trade.entity.Trade;
-import com.ureca.snac.trade.exception.*;
+import com.ureca.snac.trade.exception.TradeNotFoundException;
 import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.interfaces.TradeInitiationService;
-import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
+import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Recover;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import static com.ureca.snac.board.entity.constants.SellStatus.*;
-import static com.ureca.snac.trade.entity.TradeStatus.*;
+import static com.ureca.snac.trade.entity.TradeStatus.ACCEPTED;
 
 @Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class TradeInitiationServiceImpl implements TradeInitiationService {
+
     private final TradeRepository tradeRepository;
     private final MemberRepository memberRepository;
     private final WalletRepository walletRepository;
@@ -41,13 +47,13 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
 
     private final WalletService walletService;
     private final AssetRecorder assetRecorder;
+    private final TradeAlertService tradeAlertService;
 
     @Override
     @Transactional
     public Long acceptRealTimeTrade(Long tradeId, String username) {
         Member member = findMember(username);
         Trade trade = findLockedTrade(tradeId);
-//        Card card = findLockedCard(trade.getCardId()); -> 락 해제
         Card card = findCard(trade.getCardId());
 
         card.markTrading();  // 카드는 판매 상태이여야 함
@@ -57,12 +63,19 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
     }
 
     @Override
+    @Retryable(
+            retryFor = {TransientDataAccessException.class},
+            maxAttemptsExpression = "${retry.trade.max-attempts}",
+            backoff = @Backoff(
+                    delayExpression = "${retry.trade.delay}",
+                    multiplierExpression = "${retry.trade.multiplier}"
+            )
+    )
     @Transactional
     public Long payRealTimeTrade(CreateRealTimeTradePaymentRequest createRealTimeTradePaymentRequest, String username) {
         // 1. 거래 조회 (락 걸어서)
         Member member = findMember(username);
         Trade trade = findLockedTrade(createRealTimeTradePaymentRequest.getTradeId());
-//        Card card = findLockedCard(trade.getCardId()); -> 락 해제
         Card card = findCard(trade.getCardId());
         Wallet wallet = findLockedWallet(member.getId());
 
@@ -80,13 +93,11 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         // 금액 및 포인트 차감
         if (moneyToUse > 0) {
             moneyBalanceAfter = walletService.withdrawMoney(member.getId(), moneyToUse);
-            // wallet.withdrawMoney(createTradeRequest.getMoney());
         }
 
         long pointBalanceAfter = -1L;
         if (pointToUse > 0) {
             pointBalanceAfter = walletService.withdrawPoint(member.getId(), pointToUse);
-//            wallet.withdrawPoint(createTradeRequest.getPoint());
         }
 
         trade.markPaymentConfirmed(createRealTimeTradePaymentRequest.getPoint()); // Accepted -> Confirmed
@@ -109,7 +120,23 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         return trade.getId();
     }
 
+    @Recover
+    public Long recoverPayRealTimeTrade(DataAccessException e,
+                                        CreateRealTimeTradePaymentRequest request,
+                                        String username) {
+        tradeAlertService.alertPayRealTimeTradeFailure(request.getTradeId(), username, e);
+        throw e;
+    }
+
     @Override
+    @Retryable(
+            retryFor = {TransientDataAccessException.class},
+            maxAttemptsExpression = "${retry.trade.max-attempts}",
+            backoff = @Backoff(
+                    delayExpression = "${retry.trade.delay}",
+                    multiplierExpression = "${retry.trade.multiplier}"
+            )
+    )
     @Transactional
     public Long createRealTimeTrade(CreateRealTimeTradeRequest request, String username) {
         Member member = findMember(username);
@@ -124,10 +151,26 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         return trade.getId();
     }
 
+    @Recover
+    public Long recoverCreateRealTimeTrade(DataAccessException e,
+                                           CreateRealTimeTradeRequest request,
+                                           String username) {
+        tradeAlertService.alertCreateRealTimeTradeFailure(request.getCardId(), username, e);
+        throw e;
+    }
+
     /**
      * 판매 거래를 생성합니다.
      */
     @Override
+    @Retryable(
+            retryFor = {TransientDataAccessException.class},
+            maxAttemptsExpression = "${retry.trade.max-attempts}",
+            backoff = @Backoff(
+                    delayExpression = "${retry.trade.delay}",
+                    multiplierExpression = "${retry.trade.multiplier}"
+            )
+    )
     @Transactional
     public Long createSellTrade(CreateTradeRequest createTradeRequest, String username) {
         return buildTrade(createTradeRequest, username, SELLING);
@@ -137,9 +180,29 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
      * 구매 거래를 생성합니다.
      */
     @Override
+    @Retryable(
+            retryFor = {TransientDataAccessException.class},
+            maxAttemptsExpression = "${retry.trade.max-attempts}",
+            backoff = @Backoff(
+                    delayExpression = "${retry.trade.delay}",
+                    multiplierExpression = "${retry.trade.multiplier}"
+            )
+    )
     @Transactional
     public Long createBuyTrade(CreateTradeRequest createTradeRequest, String username) {
         return buildTrade(createTradeRequest, username, PENDING);
+    }
+
+    /**
+     * createSellTrade / createBuyTrade 공통 @Recover
+     * 파라미터 타입이 동일하므로 하나의 메서드로 양쪽을 처리.
+     */
+    @Recover
+    public Long recoverCreateTrade(DataAccessException e,
+                                   CreateTradeRequest request,
+                                   String username) {
+        tradeAlertService.alertCreateTradeFailure(request.getCardId(), username, e);
+        throw e;
     }
 
     /**
@@ -150,7 +213,6 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
     public Long acceptBuyRequest(ClaimBuyRequest claimBuyRequest, String username) {
         Member seller = findMember(username);
         Trade trade = tradeRepository.findLockedByCardId(claimBuyRequest.getCardId()).orElseThrow(TradeNotFoundException::new);
-//        Card card = findLockedCard(claimBuyRequest.getCardId()); -> 불필요한 락 제거
         Card card = findCard(claimBuyRequest.getCardId());
 
         card.ensureSellStatus(SELLING); // 판매 가능 상태가 아니라면 수락할 수 없음
@@ -179,18 +241,14 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         card.ensureCreatableBy(member, requiredStatus); // 거래 생성 소유자 조건 확인: 판매글 -> 타인, 구매글 -> 본인
         card.ensurePaymentMatches(moneyToUse, pointToUse); // 결제 금액 검증 (금액 + 포인트 == 카드 가격)
 
-        // 1.결제 먼저
         long moneyBalanceAfter = -1L;
-        // 금액 및 포인트 차감
         if (moneyToUse > 0) {
             moneyBalanceAfter = walletService.withdrawMoney(member.getId(), moneyToUse);
-            // wallet.withdrawMoney(createTradeRequest.getMoney());
         }
 
         long pointBalanceAfter = -1L;
         if (pointToUse > 0) {
             pointBalanceAfter = walletService.withdrawPoint(member.getId(), pointToUse);
-//            wallet.withdrawPoint(createTradeRequest.getPoint());
         }
 
         // 2, 거래 생성

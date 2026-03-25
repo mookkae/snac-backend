@@ -6,7 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record RetryProperties(
         RetryPolicy toss,
         RetryPolicy depositor,
-        RetryPolicy slack
+        RetryPolicy slack,
+        RetryPolicy trade,
+        RetryPolicy settlement
 ) {
     public record RetryPolicy(
             int maxAttempts,

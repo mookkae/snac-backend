@@ -17,6 +17,11 @@ import com.ureca.snac.trade.service.interfaces.TradeProgressService;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Recover;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +37,7 @@ public class TradeProgressServiceImpl implements TradeProgressService {
     private final WalletService walletService;
     private final AssetRecorder assetRecorder;
     private final MemberService memberService;
+    private final TradeAlertService tradeAlertService;
 
     private static final int RATING_SCORE_BONUS = 10;
 
@@ -40,7 +46,6 @@ public class TradeProgressServiceImpl implements TradeProgressService {
     public Long sendTradeData(Long tradeId, String username) {
         Member seller = findMember(username);
         Trade trade = findLockedTrade(tradeId);
-//        Card card = findLockedCard(trade.getCardId()); -> 불필요한 락 제거
 
         trade.markDataSent(); // 결제가 완료되지 않은 상태에서는 판매자가 데이터를 전송할 수 없음
         trade.ensureSendPermission(seller);
@@ -52,6 +57,14 @@ public class TradeProgressServiceImpl implements TradeProgressService {
     // 마지막에 상대방이 나간 경우 카드가 삭제되는 문제가 발생하여 거래가 확정이 안되는 문제가 있어 파라미터 hasCard를 추가합니다.
     // 일반 매칭 hasCard == true, 실시간 매칭 == false
     @Override
+    @Retryable(
+            retryFor = {TransientDataAccessException.class},
+            maxAttemptsExpression = "${retry.trade.max-attempts}",
+            backoff = @Backoff(
+                    delayExpression = "${retry.trade.delay}",
+                    multiplierExpression = "${retry.trade.multiplier}"
+            )
+    )
     @Transactional
     public TradeDto confirmTrade(Long tradeId, String username, Boolean hasCard) {
         Trade trade = findLockedTrade(tradeId);
@@ -87,6 +100,12 @@ public class TradeProgressServiceImpl implements TradeProgressService {
 
         log.info("[거래 확정 완료] 모든 후처리 작업 성공 . 거래 ID : {}", tradeId);
         return TradeDto.from(trade);
+    }
+
+    @Recover
+    public TradeDto recoverConfirmTrade(DataAccessException e, Long tradeId, String username, Boolean hasCard) {
+        tradeAlertService.alertConfirmTradeFailure(tradeId, username, e);
+        throw e;
     }
 
     private Member findMember(String email) {

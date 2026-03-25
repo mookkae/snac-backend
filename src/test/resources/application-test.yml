@@ -171,6 +171,14 @@ retry:
   slack:
     max-attempts: 3
     delay: 1000
+  trade:
+    max-attempts: 3
+    delay: 100
+    multiplier: 2.0
+  settlement:
+    max-attempts: 3
+    delay: 100
+    multiplier: 2.0
 
 logging:
   level:

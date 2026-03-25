@@ -10,6 +10,11 @@ import com.ureca.snac.settlement.domain.service.SettlementValidator;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Recover;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +30,7 @@ public class SettlementServiceImpl implements SettlementService {
     // 검증 내부 서비스 도메인
     private final SettlementValidator settlementValidator;
     private final AssetRecorder assetRecorder;
+    private final SettlementAlertService settlementAlertService;
 
     /**
      * 트랜 잭션 관리 책임 서비스
@@ -34,6 +40,14 @@ public class SettlementServiceImpl implements SettlementService {
      * @param accountNumber 입금받을 계좌번호
      */
     @Override
+    @Retryable(
+            retryFor = {TransientDataAccessException.class},
+            maxAttemptsExpression = "${retry.settlement.max-attempts}",
+            backoff = @Backoff(
+                    delayExpression = "${retry.settlement.delay}",
+                    multiplierExpression = "${retry.settlement.multiplier}"
+            )
+    )
     @Transactional
     public void processSettlement(String username, long amount, String accountNumber) {
         log.info("[정산 처리] 시작. 사용자 : {}", username);
@@ -56,5 +70,11 @@ public class SettlementServiceImpl implements SettlementService {
 
         assetRecorder.recordSettlement(member.getId(), settlement.getId(), amount, balanceAfter);
         log.info("[정산 처리] 자산 내역 기록 완료. 회원 ID : {}", member.getId());
+    }
+
+    @Recover
+    public void recoverProcessSettlement(DataAccessException e, String username, long amount, String accountNumber) {
+        settlementAlertService.alertSettlementFailure(username, amount, e);
+        throw e;
     }
 }
