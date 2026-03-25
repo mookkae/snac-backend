@@ -83,8 +83,7 @@ public class TradeAutoItemProcessor {
         switch (trade.getStatus()) {
             case PAYMENT_CONFIRMED -> tradeAlertService.alertAutoRefundFailure(trade.getId(), e);
             case DATA_SENT -> tradeAlertService.alertAutoPayoutFailure(trade.getId(), e);
-            default -> log.error("[자동처리 @Recover 예상치 못한 상태] tradeId: {}, status: {}",
-                    trade.getId(), trade.getStatus(), e);
+            default -> tradeAlertService.alertAutoProcessUnexpectedFailure(trade.getId(), trade.getStatus().name(), e);
         }
     }
 

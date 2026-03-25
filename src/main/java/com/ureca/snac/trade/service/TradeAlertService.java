@@ -112,6 +112,18 @@ public class TradeAlertService {
                 ))));
     }
 
+    public void alertAutoProcessUnexpectedFailure(Long tradeId, String status, DataAccessException e) {
+        log.error("[자동처리 최종 실패 - 예상치 못한 상태] 재시도 모두 소진. tradeId: {}, status: {}", tradeId, status, e);
+        slackNotifier.sendAsync(SlackMessage.of("⚠️ 자동처리 DB 최종 실패 (예상치 못한 상태)",
+                SlackAttachment.danger(List.of(
+                        SlackField.of("거래 ID", String.valueOf(tradeId)),
+                        SlackField.of("거래 상태", status),
+                        SlackField.of("발생 시각", now()),
+                        SlackField.longField("오류", e.getMessage()),
+                        SlackField.longField("조치", "즉시 시스템 확인 및 수동 개입이 필요합니다.")
+                ))));
+    }
+
     public void alertAutoPayoutFailure(Long tradeId, DataAccessException e) {
         log.error("[자동 정산 최종 실패] 재시도 모두 소진. tradeId: {}", tradeId, e);
         slackNotifier.sendAsync(SlackMessage.of("⚠️ 자동 정산 DB 처리 최종 실패",
