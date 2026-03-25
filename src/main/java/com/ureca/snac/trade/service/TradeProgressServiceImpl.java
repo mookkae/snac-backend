@@ -58,7 +58,7 @@ public class TradeProgressServiceImpl implements TradeProgressService {
     // 일반 매칭 hasCard == true, 실시간 매칭 == false
     @Override
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",

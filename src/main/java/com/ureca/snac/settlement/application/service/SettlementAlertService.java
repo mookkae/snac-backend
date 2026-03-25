@@ -23,6 +23,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SettlementAlertService {
 
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private final SlackNotifier slackNotifier;
 
     public void alertSettlementFailure(String username, long amount, DataAccessException e) {
@@ -43,6 +45,6 @@ public class SettlementAlertService {
     }
 
     private String now() {
-        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return LocalDateTime.now().format(DATE_TIME_FORMATTER);
     }
 }

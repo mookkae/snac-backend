@@ -24,6 +24,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TradeAlertService {
 
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private final SlackNotifier slackNotifier;
 
     public void alertPayRealTimeTradeFailure(Long tradeId, String username, DataAccessException e) {
@@ -127,6 +129,6 @@ public class TradeAlertService {
     }
 
     private String now() {
-        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return LocalDateTime.now().format(DATE_TIME_FORMATTER);
     }
 }

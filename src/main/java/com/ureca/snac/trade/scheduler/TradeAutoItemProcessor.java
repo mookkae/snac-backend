@@ -38,7 +38,7 @@ public class TradeAutoItemProcessor {
      * 각 재시도는 새로운 트랜잭션으로 실행됨 (Retry → Transaction 인터셉터 순서 보장)
      */
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",
@@ -92,7 +92,7 @@ public class TradeAutoItemProcessor {
      * 구매자 미확정으로 인한 자동 정산 단건 처리
      */
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",

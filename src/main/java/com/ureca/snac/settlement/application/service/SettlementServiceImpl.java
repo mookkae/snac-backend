@@ -41,7 +41,7 @@ public class SettlementServiceImpl implements SettlementService {
      */
     @Override
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.settlement.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.settlement.delay}",

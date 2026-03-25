@@ -64,7 +64,7 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
 
     @Override
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",
@@ -130,7 +130,7 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
 
     @Override
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",
@@ -164,7 +164,7 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
      */
     @Override
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",
@@ -181,7 +181,7 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
      */
     @Override
     @Retryable(
-            retryFor = {TransientDataAccessException.class, DataAccessException.class},
+            retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
                     delayExpression = "${retry.trade.delay}",
