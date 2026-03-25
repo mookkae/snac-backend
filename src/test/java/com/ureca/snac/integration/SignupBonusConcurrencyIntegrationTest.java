@@ -23,7 +23,7 @@ class SignupBonusConcurrencyIntegrationTest extends IntegrationTestSupport {
     @Autowired
     private SignupBonusService signupBonusService;
 
-    private static final int THREAD_COUNT = 50;
+    private static final int THREAD_COUNT = 100;
 
     @Test
     @DisplayName("동시성: 동일 memberId N건 동시 지급 -> Wallet 포인트 1회만 증가, AssetHistory 1건")
@@ -56,6 +56,7 @@ class SignupBonusConcurrencyIntegrationTest extends IntegrationTestSupport {
                 .isEqualTo("SIGNUP_BONUS:" + member.getId());
 
         // 3. 전체 = 성공 + 중복 (예외 누출 없음)
+        System.out.println("[멱등성 결과] 성공: " + successCount.get() + "건, DB 차단(unique 위반): " + duplicateCount.get() + "건, 총: " + THREAD_COUNT + "건");
         assertThat(successCount.get() + duplicateCount.get()).isEqualTo(THREAD_COUNT);
         assertThat(successCount.get()).isGreaterThanOrEqualTo(1);
     }
