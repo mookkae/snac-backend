@@ -85,6 +85,25 @@ class OutboxRepositoryTest extends RepositoryTestSupport {
         }
 
         @Test
+        @DisplayName("이중 발행 방어: Push·Polling 연속 호출 시 첫 번째만 성공(1), 두 번째는 no-op(0)")
+        void markAsPublished_consecutiveCalls_onlyFirstSucceeds() {
+            // given: INIT
+            Outbox outbox = OutboxFixture.memberJoinInit(1L);
+            outboxRepository.save(outbox);
+            outboxRepository.flush();
+
+            // when: Push
+            int firstResult = outboxRepository.markAsPublished(outbox.getId(), LocalDateTime.now());
+
+            // when: Polling
+            int secondResult = outboxRepository.markAsPublished(outbox.getId(), LocalDateTime.now());
+
+            // then
+            assertThat(firstResult).isEqualTo(1);
+            assertThat(secondResult).isEqualTo(0);
+        }
+
+        @Test
         @DisplayName("실패 : 이미 PUBLISHED 상태는 업데이트 실패")
         void markAsPublished_alreadyPublished_updateFails() {
             // given
