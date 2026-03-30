@@ -8,6 +8,7 @@ import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentMethod;
 import com.ureca.snac.payment.entity.PaymentStatus;
+import com.ureca.snac.payment.exception.PaymentAlreadyProcessedPaymentException;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
@@ -52,11 +53,11 @@ public class MoneyDepositor {
         Payment lockedPayment = paymentRepository.findByIdForUpdate(payment.getId())
                 .orElseThrow(PaymentNotFoundException::new);
 
-        // 락 획득 후 상태 확인 - 이미 처리된 경우 조기 종료
+        // 락 획득 후 상태 확인 - 이미 처리된 경우 예외 (HTTP 4xx)
         if (lockedPayment.getStatus() != PaymentStatus.PENDING) {
             log.warn("[머니 입금 처리] 이미 처리된 결제. 중복 처리 방지. paymentId: {}, status: {}",
                     payment.getId(), lockedPayment.getStatus());
-            return;
+            throw new PaymentAlreadyProcessedPaymentException();
         }
 
         // 락이 걸린 영속 객체를 사용하여 모든 작업 수행
