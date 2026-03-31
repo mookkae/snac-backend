@@ -262,7 +262,7 @@ public class Trade extends BaseTimeEntity {
     }
 
     public long getMoneyAmount() {
-        return priceGb - getPointOrZero();
+        return (priceGb != null ? priceGb : 0) - getPointOrZero();
     }
 
     /**

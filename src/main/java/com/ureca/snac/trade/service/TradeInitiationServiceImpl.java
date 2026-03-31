@@ -86,7 +86,7 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         CompositeBalanceResult escrowResult =
                 walletService.moveCompositeToEscrow(member.getId(), moneyToUse, pointToUse);
 
-        trade.markPaymentConfirmed(createRealTimeTradePaymentRequest.getPoint()); // Accepted -> Confirmed
+        trade.markPaymentConfirmed((int) createRealTimeTradePaymentRequest.getPoint()); // Accepted -> Confirmed
 
         // 2. 기록
         if (moneyToUse > 0) {
