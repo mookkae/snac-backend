@@ -19,7 +19,6 @@ import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.payment.service.PaymentService;
-import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -96,7 +95,8 @@ public class DevToolServiceImpl implements DevToolService {
         Member member = memberRepository.findByEmail(request.email())
                 .orElseThrow(MemberNotFoundException::new);
 
-        long balanceAfter = walletService.depositPoint(member.getId(), request.amount());
+        walletService.depositPoint(member.getId(), request.amount());
+        long balanceAfter = walletService.getPointBalance(member.getId());
 
         // 개발용 포인트 지급은 커스텀 사유를 허용하므로 직접 저장
         saveDevPointGrant(member, request.amount(), balanceAfter, request.reason());
@@ -134,14 +134,13 @@ public class DevToolServiceImpl implements DevToolService {
                         request.moneyAmountToUse(), request.pointAmountToUse()
                 );
 
-        walletService.moveCompositeToEscrow(ctx.buyer().getId(), request.moneyAmountToUse(), request.pointAmountToUse());
-        CompositeBalanceResult buyerResult = walletService.deductCompositeEscrow(ctx.buyer().getId(), request.moneyAmountToUse(), request.pointAmountToUse());
+        walletService.withdrawComposite(ctx.buyer().getId(), request.moneyAmountToUse(), request.pointAmountToUse());
 
         long sellerMoneyBalanceAfter = (request.moneyAmountToUse() > 0) ?
                 walletService.depositMoney(ctx.seller().getId(), request.moneyAmountToUse()) :
                 walletService.getMoneyBalance(ctx.seller().getId());
 
-        recordTradeAssets(ctx, request.moneyAmountToUse(), request.pointAmountToUse(), sellerMoneyBalanceAfter, buyerResult);
+        recordTradeAssets(ctx, request.moneyAmountToUse(), request.pointAmountToUse(), sellerMoneyBalanceAfter);
 
         log.info("[개발용 거래 완료] 완료. 생성된 Trade ID : {}", ctx.trade().getId());
 
@@ -149,19 +148,22 @@ public class DevToolServiceImpl implements DevToolService {
     }
 
     private void recordTradeAssets(DevDataSupport.TradeCompletionContext ctx, long moneyUsed,
-                                   long pointUsed, long sellerMoneyBalance, CompositeBalanceResult buyerResult) {
+                                   long pointUsed, long sellerMoneyBalance) {
 
         String title = String.format("%s %dGB", ctx.card().getCarrier().name(), ctx.card().getDataAmount());
 
+        long buyerMoneyBalance = walletService.getMoneyBalance(ctx.buyer().getId());
+        long buyerPointBalance = walletService.getPointBalance(ctx.buyer().getId());
+
         if (moneyUsed > 0) {
             assetRecorder.recordTradeBuy(ctx.buyer().getId(), ctx.trade().getId(),
-                    title + " 머니 사용", AssetType.MONEY, moneyUsed, buyerResult.moneyBalance());
+                    title + " 머니 사용", AssetType.MONEY, moneyUsed, buyerMoneyBalance);
             assetRecorder.recordTradeSell(ctx.seller().getId(), ctx.trade().getId(),
                     title + " 판매 대금", moneyUsed, sellerMoneyBalance);
         }
         if (pointUsed > 0) {
             assetRecorder.recordTradeBuy(ctx.buyer().getId(), ctx.trade().getId(),
-                    title + " 포인트 사용", AssetType.POINT, pointUsed, buyerResult.pointBalance());
+                    title + " 포인트 사용", AssetType.POINT, pointUsed, buyerPointBalance);
         }
     }
 

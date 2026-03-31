@@ -79,6 +79,10 @@ public class Wallet extends BaseTimeEntity {
         this.point.deposit(amount);
     }
 
+    public void withdrawPoint(long amount) {
+        this.point.withdraw(amount);
+    }
+
     public void movePointToEscrow(long amount) {
         this.point.moveToEscrow(amount);
     }
@@ -99,11 +103,19 @@ public class Wallet extends BaseTimeEntity {
         return this.money.getEscrow();
     }
 
+    public Long getTotalMoney() {
+        return this.money.getTotal();
+    }
+
     public Long getPointBalance() {
         return this.point.getBalance();
     }
 
     public Long getPointEscrow() {
         return this.point.getEscrow();
+    }
+
+    public Long getTotalPoint() {
+        return this.point.getTotal();
     }
 }
