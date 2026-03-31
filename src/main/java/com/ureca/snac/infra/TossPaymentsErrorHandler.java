@@ -5,11 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.common.exception.ExternalApiException;
 import com.ureca.snac.infra.dto.response.TossErrorResponse;
 import com.ureca.snac.payment.exception.*;
-import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.web.client.ResponseErrorHandler;
+
+import lombok.RequiredArgsConstructor;
 
 import java.io.IOException;
 import java.net.URI;
@@ -22,9 +23,10 @@ import static com.ureca.snac.common.BaseCode.TOSS_API_CALL_ERROR;
  * API를 호출하는 CLIENT 코드는 에러 처리 로직으로부터 분리
  */
 @Slf4j
+@RequiredArgsConstructor
 public class TossPaymentsErrorHandler implements ResponseErrorHandler {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     @Override
     public boolean hasError(final ClientHttpResponse response) throws IOException {
@@ -33,8 +35,8 @@ public class TossPaymentsErrorHandler implements ResponseErrorHandler {
     }
 
     @Override
-    public void handleError(@NonNull final URI url,
-                            @NonNull final HttpMethod method,
+    public void handleError(final URI url,
+                            final HttpMethod method,
                             final ClientHttpResponse response) throws IOException {
         String responseBody = new String(response.getBody().readAllBytes(),
                 StandardCharsets.UTF_8);

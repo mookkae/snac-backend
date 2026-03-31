@@ -1,5 +1,6 @@
 package com.ureca.snac.infra.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.infra.TossPaymentsErrorHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -24,8 +25,8 @@ public class TossRestClientConfig {
     private final RestClient.Builder restClientBuilder;  // 공통 빌더 주입
 
     @Bean
-    public TossPaymentsErrorHandler tossPaymentsErrorHandler() {
-        return new TossPaymentsErrorHandler();
+    public TossPaymentsErrorHandler tossPaymentsErrorHandler(ObjectMapper objectMapper) {
+        return new TossPaymentsErrorHandler(objectMapper);
     }
 
     @Bean
@@ -35,7 +36,7 @@ public class TossRestClientConfig {
 
     @Bean
     public RestClient tossRestClient(TossPaymentsErrorHandler errorHandler,
-                                      TossLoggingInterceptor loggingInterceptor) {
+                                     TossLoggingInterceptor loggingInterceptor) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(5));
         requestFactory.setReadTimeout(Duration.ofSeconds(30));
