@@ -73,13 +73,10 @@ public class TradeProgressServiceImpl implements TradeProgressService {
 
         trade.confirm(buyer); // 거래 상태를 확정으로 변경
 
-        if (hasCard) {
-            Card card = findLockedCard(trade.getCardId());
-            card.markSoldOut(); // 카드 상태를 판매 완료로 변경
-        } else {
-            cardRepository.deleteById(trade.getCardId()); // 실시간 매칭에서는 거래가 끝난 경우 카드는 필요 없으므로 삭제
-        }
+        // 1. 구매자 에스크로 차감 (escrow → 소멸) — 자금 이동을 카드 상태 변경보다 우선
+        walletService.deductCompositeEscrow(buyer.getId(), trade.getMoneyAmount(), trade.getPointOrZero());
 
+        // 2. 판매자에게 총액 입금 (머니로 지급, 포인트 사용분도 플랫폼이 환산하여 머니로 지급)
         long amountToDeposit = trade.getPriceGb();
         long finalMoneyBalance = walletService.depositMoney(seller.getId(), amountToDeposit);
 
@@ -94,6 +91,14 @@ public class TradeProgressServiceImpl implements TradeProgressService {
 
         assetRecorder.recordTradeCompletionBonus(
                 seller.getId(), trade.getId(), amount, finalPointBalance);
+
+        // 3. 카드 상태 변경 — 자금 이동 완료 후 처리
+        if (hasCard) {
+            Card card = findLockedCard(trade.getCardId());
+            card.markSoldOut();
+        } else {
+            cardRepository.deleteById(trade.getCardId());
+        }
 
         memberService.addRatingScore(buyer.getId(), RATING_SCORE_BONUS);
         memberService.addRatingScore(seller.getId(), RATING_SCORE_BONUS);
