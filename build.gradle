@@ -131,7 +131,7 @@ jacocoTestReport {
                             "**/com/ureca/snac/money/**",
                             "**/com/ureca/snac/outbox/**",
                             "**/com/ureca/snac/payment/**",
-                            "**/com/ureca/snac/wallet/listener/**"
+                            "**/com/ureca/snac/wallet/**"
                     ],
                     // 2. 테스트 없는 계층 + 단순 데이터/생성 클래스 제외
                     excludes: [
@@ -170,7 +170,7 @@ jacocoTestCoverageVerification {
                     "**/com/ureca/snac/money/**",
                     "**/com/ureca/snac/outbox/**",
                     "**/com/ureca/snac/payment/**",
-                    "**/com/ureca/snac/wallet/listener/**"
+                    "**/com/ureca/snac/wallet/**"
             ]
             excludes = [
                     "**/dto/**",
