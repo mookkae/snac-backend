@@ -4,17 +4,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.asset.repository.AssetHistoryRepository;
 import com.ureca.snac.auth.service.verify.EmailService;
 import com.ureca.snac.auth.service.verify.SnsService;
+import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.common.notification.SlackNotifier;
 import com.ureca.snac.config.RabbitMQQueue;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.repository.SocialLinkRepository;
-import com.ureca.snac.support.fixture.MemberFixture;
-import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.outbox.repository.OutboxRepository;
 import com.ureca.snac.outbox.scheduler.DlqMonitor;
 import com.ureca.snac.payment.repository.PaymentRepository;
+import com.ureca.snac.support.fixture.MemberFixture;
+import com.ureca.snac.trade.repository.TradeCancelRepository;
+import com.ureca.snac.trade.repository.TradeRepository;
+import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.repository.WalletRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -148,6 +151,15 @@ public abstract class IntegrationTestSupport {
     protected PaymentRepository paymentRepository;
 
     @Autowired
+    protected TradeCancelRepository tradeCancelRepository;
+
+    @Autowired
+    protected TradeRepository tradeRepository;
+
+    @Autowired
+    protected CardRepository cardRepository;
+
+    @Autowired
     protected MoneyRechargeRepository moneyRechargeRepository;
 
     @Autowired
@@ -176,12 +188,17 @@ public abstract class IntegrationTestSupport {
         // 2. FK 순서 (자식 -> 부모)
         socialLinkRepository.deleteAllInBatch();
 
+        // Trade 관련 (trade_cancel → trade → member, card → member)
+        tradeCancelRepository.deleteAllInBatch();
+        tradeRepository.deleteAllInBatch();
+
         assetHistoryRepository.deleteAllInBatch();
 
         // Payment 관련 (Member FK 존재)
         moneyRechargeRepository.deleteAllInBatch();
         paymentRepository.deleteAllInBatch();
 
+        cardRepository.deleteAllInBatch();
         walletRepository.deleteAllInBatch();
         outboxRepository.deleteAllInBatch();
 
