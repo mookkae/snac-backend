@@ -1,13 +1,13 @@
 package com.ureca.snac.wallet.service;
 
 import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.dto.WalletSummaryResponse;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.event.WalletCreatedEvent;
-import com.ureca.snac.wallet.exception.InsufficientBalanceException;
+import com.ureca.snac.wallet.exception.InvalidAmountException;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
+import com.ureca.snac.wallet.repository.WalletRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -96,50 +96,6 @@ public class WalletServiceImpl implements WalletService {
 
     @Override
     @Transactional
-    public long moveMoneyToEscrow(Long memberId, long amount) {
-        log.info("[머니 에스크로 이동] 시작. 회원 ID: {}, 금액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.moveMoneyToEscrow(amount);
-
-        long finalBalance = wallet.getMoneyBalance();
-        log.info("[머니 에스크로 이동] 완료. 회원 ID: {}, 잔액: {}, 에스크로: {}",
-                memberId, finalBalance, wallet.getMoneyEscrow());
-
-        return finalBalance;
-    }
-
-    @Override
-    @Transactional
-    public long releaseMoneyEscrow(Long memberId, long amount) {
-        log.info("[머니 에스크로 복원] 시작. 회원 ID: {}, 금액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.releaseMoneyEscrow(amount);
-
-        long finalBalance = wallet.getMoneyBalance();
-        log.info("[머니 에스크로 복원] 완료. 회원 ID: {}, 잔액: {}, 에스크로: {}",
-                memberId, finalBalance, wallet.getMoneyEscrow());
-
-        return finalBalance;
-    }
-
-    @Override
-    @Transactional
-    public long deductMoneyEscrow(Long memberId, long amount) {
-        log.info("[머니 에스크로 차감] 시작. 회원 ID: {}, 금액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.deductMoneyEscrow(amount);
-
-        long finalEscrow = wallet.getMoneyEscrow();
-        log.info("[머니 에스크로 차감] 완료. 회원 ID: {}, 에스크로: {}", memberId, finalEscrow);
-
-        return wallet.getMoneyBalance();
-    }
-
-    @Override
-    @Transactional
     public Long depositPoint(Long memberId, long amount) {
         log.info("[포인트 적립] 시작. 회원 ID: {}, 적립액: {}", memberId, amount);
 
@@ -158,96 +114,8 @@ public class WalletServiceImpl implements WalletService {
 
     @Override
     @Transactional
-    public Long withdrawPoint(Long memberId, long amount) {
-        log.info("[포인트 사용] 시작. 회원 ID: {}, 사용액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.withdrawPoint(amount);
-
-        long finalBalance = wallet.getPointBalance();
-        log.info("[포인트 사용] 완료. 회원 ID: {}, 최종 잔액: {}", memberId, finalBalance);
-        Counter.builder("wallet_operation_total")
-                .tag("type", "withdraw_point")
-                .register(meterRegistry).increment();
-
-        return finalBalance;
-    }
-
-    @Override
-    @Transactional
-    public long movePointToEscrow(Long memberId, long amount) {
-        log.info("[포인트 에스크로 이동] 시작. 회원 ID: {}, 금액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.movePointToEscrow(amount);
-
-        long finalBalance = wallet.getPointBalance();
-        log.info("[포인트 에스크로 이동] 완료. 회원 ID: {}, 잔액: {}, 에스크로: {}",
-                memberId, finalBalance, wallet.getPointEscrow());
-
-        return finalBalance;
-    }
-
-    @Override
-    @Transactional
-    public long releasePointEscrow(Long memberId, long amount) {
-        log.info("[포인트 에스크로 복원] 시작. 회원 ID: {}, 금액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.releasePointEscrow(amount);
-
-        long finalBalance = wallet.getPointBalance();
-        log.info("[포인트 에스크로 복원] 완료. 회원 ID: {}, 잔액: {}, 에스크로: {}",
-                memberId, finalBalance, wallet.getPointEscrow());
-
-        return finalBalance;
-    }
-
-    @Override
-    @Transactional
-    public long deductPointEscrow(Long memberId, long amount) {
-        log.info("[포인트 에스크로 차감] 시작. 회원 ID: {}, 금액: {}", memberId, amount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-        wallet.deductPointEscrow(amount);
-
-        long finalEscrow = wallet.getPointEscrow();
-        log.info("[포인트 에스크로 차감] 완료. 회원 ID: {}, 에스크로: {}", memberId, finalEscrow);
-
-        return wallet.getPointBalance();
-    }
-
-    @Override
-    @Transactional
-    public CompositeBalanceResult withdrawComposite(Long memberId, long moneyAmount, long pointAmount) {
-        if (moneyAmount <= 0 && pointAmount <= 0) {
-            throw new IllegalArgumentException("출금 금액은 0보다 커야 합니다.");
-        }
-
-        log.info("[복합 출금] 시작. 회원 ID: {}, 머니: {}, 포인트: {}", memberId, moneyAmount, pointAmount);
-
-        Wallet wallet = findWalletWithLock(memberId);
-
-        if (moneyAmount > 0) {
-            wallet.withdrawMoney(moneyAmount);
-        }
-        if (pointAmount > 0) {
-            wallet.withdrawPoint(pointAmount);
-        }
-
-        CompositeBalanceResult result = CompositeBalanceResult.from(wallet);
-        log.info("[복합 출금] 완료. 회원 ID: {}, 머니 잔액: {}, 포인트 잔액: {}",
-                memberId, result.moneyBalance(), result.pointBalance());
-
-        return result;
-    }
-
-    @Override
-    @Transactional
     public CompositeBalanceResult moveCompositeToEscrow(Long memberId, long moneyAmount, long pointAmount) {
-        if (moneyAmount <= 0 && pointAmount <= 0) {
-            throw new InsufficientBalanceException();
-        }
+        validateCompositeAmounts(moneyAmount, pointAmount);
 
         log.info("[복합 에스크로 이동] 시작. 회원 ID: {}, 머니: {}, 포인트: {}", memberId, moneyAmount, pointAmount);
 
@@ -270,9 +138,7 @@ public class WalletServiceImpl implements WalletService {
     @Override
     @Transactional
     public CompositeBalanceResult releaseCompositeEscrow(Long memberId, long moneyAmount, long pointAmount) {
-        if (moneyAmount <= 0 && pointAmount <= 0) {
-            throw new InsufficientBalanceException();
-        }
+        validateCompositeAmounts(moneyAmount, pointAmount);
 
         log.info("[복합 에스크로 복원] 시작. 회원 ID: {}, 머니: {}, 포인트: {}", memberId, moneyAmount, pointAmount);
 
@@ -295,9 +161,7 @@ public class WalletServiceImpl implements WalletService {
     @Override
     @Transactional
     public CompositeBalanceResult deductCompositeEscrow(Long memberId, long moneyAmount, long pointAmount) {
-        if (moneyAmount <= 0 && pointAmount <= 0) {
-            throw new InsufficientBalanceException();
-        }
+        validateCompositeAmounts(moneyAmount, pointAmount);
 
         log.info("[복합 에스크로 차감] 시작. 회원 ID : {}, 머니 : {}, 포인트 : {}", memberId, moneyAmount, pointAmount);
 
@@ -324,25 +188,6 @@ public class WalletServiceImpl implements WalletService {
     }
 
     @Override
-    public long getMoneyEscrow(Long memberId) {
-        Wallet wallet = findWallet(memberId);
-        return wallet.getMoneyEscrow();
-    }
-
-    @Override
-    public long getPointBalance(Long memberId) {
-        Wallet wallet = findWallet(memberId);
-        return wallet.getPointBalance();
-    }
-
-    @Override
-    public long getPointEscrow(Long memberId) {
-        Wallet wallet = findWallet(memberId);
-        return wallet.getPointEscrow();
-    }
-
-
-    @Override
     public WalletSummaryResponse getWalletSummary(String email) {
         log.info("[지갑 요약 조회] 시작. 이메일 : {}", email);
 
@@ -356,6 +201,12 @@ public class WalletServiceImpl implements WalletService {
         log.info("[지갑 요약 조회] 완료. 이메일 : {}", email);
 
         return response;
+    }
+
+    private void validateCompositeAmounts(long moneyAmount, long pointAmount) {
+        if (moneyAmount < 0 || pointAmount < 0 || (moneyAmount == 0 && pointAmount == 0)) {
+            throw new InvalidAmountException();
+        }
     }
 
     private Wallet findWallet(Long memberId) {
