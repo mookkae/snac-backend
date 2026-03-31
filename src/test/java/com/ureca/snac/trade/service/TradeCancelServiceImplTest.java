@@ -157,7 +157,7 @@ class TradeCancelServiceImplTest {
                     .willReturn(new CompositeBalanceResult((long) PRICE, 0L, 0L, 0L));
 
             // when
-            tradeCancelService.cancelRealTimeTrade(TRADE_ID, buyer.getEmail(), com.ureca.snac.trade.entity.CancelReason.BUYER_CHANGE_MIND);
+            tradeCancelService.cancelRealTimeTrade(TRADE_ID, buyer.getEmail(), CancelReason.BUYER_CHANGE_MIND);
 
             // then
             verify(walletService, times(1)).releaseCompositeEscrow(buyer.getId(), (long) PRICE, 0L);
