@@ -257,6 +257,14 @@ public class Trade extends BaseTimeEntity {
         this.seller = seller;
     }
 
+    public int getPointOrZero() {
+        return point != null ? point : 0;
+    }
+
+    public long getMoneyAmount() {
+        return (priceGb != null ? priceGb : 0) - getPointOrZero();
+    }
+
     /**
      * 결제 금액(머니 + 포인트)이 주문 금액(priceGb)과 일치하는지 검증.
      * 일치하지 않으면 TradePaymentMismatchException을 던진다.

@@ -26,5 +26,5 @@ public interface TradeCancelService {
 
     TradeDto cancelRealTimeTrade(Long tradeId, String username, CancelReason reason);
 
-    void refundToBuyerAndPublishEvent(Trade trade, Card card, Member buyer);
+    void refundBuyerEscrow(Trade trade, Card card, Member buyer);
 }

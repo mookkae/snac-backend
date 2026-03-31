@@ -6,10 +6,10 @@ import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.common.BaseCode;
 import com.ureca.snac.common.exception.BusinessException;
 import com.ureca.snac.common.s3.S3Uploader;
-import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.Role;
+import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.trade.dto.DisputeSearchCond;
 import com.ureca.snac.trade.dto.dispute.DisputeAnswerRequest;
 import com.ureca.snac.trade.dto.dispute.DisputeDetailResponse;
@@ -23,9 +23,9 @@ import com.ureca.snac.trade.repository.DisputeRepository;
 import com.ureca.snac.trade.service.interfaces.DisputeAdminService;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
 import com.ureca.snac.trade.service.interfaces.TradeCancelService;
-import com.ureca.snac.wallet.repository.WalletRepository;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
+import com.ureca.snac.wallet.repository.WalletRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -149,7 +149,7 @@ public class DisputeAdminServiceImpl implements DisputeAdminService {
         Card card = cardRepository.findById(trade.getCardId()).orElseThrow(CardNotFoundException::new);
         Member buyer = trade.getBuyer();
 
-        tradeCancelService.refundToBuyerAndPublishEvent(trade, card, buyer);
+        tradeCancelService.refundBuyerEscrow(trade, card, buyer);
 //        // 환불 계산
 //        int priceGb = trade.getPriceGb() == null ? 0 : trade.getPriceGb();
 //        int pointUnit = trade.getPoint()   == null ? 0 : trade.getPoint();

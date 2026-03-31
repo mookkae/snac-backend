@@ -11,6 +11,7 @@ import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.entity.TradeStatus;
 import com.ureca.snac.trade.service.TradeAlertService;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
+import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,22 +51,24 @@ public class TradeAutoItemProcessor {
         Card card = findLockedCard(trade.getCardId());
         Member buyer = trade.getBuyer();
 
-        long moneyToRefund = trade.getPriceGb() - trade.getPoint();
+        int point = trade.getPointOrZero();
+        long moneyToRefund = trade.getMoneyAmount();
+
+        CompositeBalanceResult result =
+                walletService.releaseCompositeEscrow(buyer.getId(), moneyToRefund, point);
+
         if (moneyToRefund > 0) {
-            long moneyFinalBalance = walletService.depositMoney(buyer.getId(), moneyToRefund);
             String title = String.format("%s %dGB 자동 환불",
                     card.getCarrier().name(), card.getDataAmount());
             assetRecorder.recordTradeCancelRefund(
-                    buyer.getId(), trade.getId(), title, AssetType.MONEY, moneyToRefund, moneyFinalBalance);
+                    buyer.getId(), trade.getId(), title, AssetType.MONEY, moneyToRefund, result.moneyBalance());
         }
 
-        long pointToRefund = trade.getPoint();
-        if (pointToRefund > 0) {
-            long pointFinalBalance = walletService.depositPoint(buyer.getId(), pointToRefund);
+        if (point > 0) {
             String title = String.format("%s %dGB 자동 포인트 환불",
                     card.getCarrier().name(), card.getDataAmount());
             assetRecorder.recordTradeCancelRefund(
-                    buyer.getId(), trade.getId(), title, AssetType.POINT, pointToRefund, pointFinalBalance);
+                    buyer.getId(), trade.getId(), title, AssetType.POINT, (long) point, result.pointBalance());
         }
 
         trade.cancel(trade.getBuyer());
@@ -101,8 +104,13 @@ public class TradeAutoItemProcessor {
     @Transactional
     public void processPayout(Trade trade) {
         Card card = findLockedCard(trade.getCardId());
+        Member buyer = trade.getBuyer();
         Member seller = trade.getSeller();
 
+        // 1. 구매자 에스크로 차감 (escrow → 소멸)
+        walletService.deductCompositeEscrow(buyer.getId(), trade.getMoneyAmount(), trade.getPointOrZero());
+
+        // 2. 판매자에게 총액 입금
         long amountToDeposit = trade.getPriceGb();
         long finalBalance = walletService.depositMoney(seller.getId(), amountToDeposit);
 

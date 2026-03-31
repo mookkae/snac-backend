@@ -8,8 +8,8 @@ import com.ureca.snac.board.entity.constants.SellStatus;
 import com.ureca.snac.board.exception.CardNotFoundException;
 import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.trade.controller.request.CancelBuyRequest;
 import com.ureca.snac.trade.dto.TradeDto;
 import com.ureca.snac.trade.entity.*;
@@ -18,6 +18,7 @@ import com.ureca.snac.trade.repository.TradeCancelRepository;
 import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
 import com.ureca.snac.trade.service.interfaces.TradeCancelService;
+import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.service.WalletService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -98,11 +99,11 @@ public class TradeCancelServiceImpl implements TradeCancelService {
 
             // 카드 상태 처리
             // 지금 판매자가 취소 요청 상태인데 판매글이면 삭제 처리 / 구매글이면 다시 구매중으로
-            if(card.getCardCategory() == CardCategory.SELL){
+            if (card.getCardCategory() == CardCategory.SELL) {
 //                card.changeSellStatus(SellStatus.CANCEL);
                 // 카드 삭제 처리
                 cardRepo.deleteById(card.getId());
-            } else if (card.getCardCategory() == CardCategory.BUY){
+            } else if (card.getCardCategory() == CardCategory.BUY) {
                 card.changeSellStatus(SellStatus.SELLING);
             }
 
@@ -110,9 +111,9 @@ public class TradeCancelServiceImpl implements TradeCancelService {
             trade.cancel(requester);
             trade.changeCancelReason(reason);
 
-            refundToBuyerAndPublishEvent(trade, card, buyer);
+            refundBuyerEscrow(trade, card, buyer);
 //            일단 프라비잇으로 환불 로직이랑 이벤트 호출하는거 헬퍼 메소드로 뺏다. 중복 로직이라서 이후의 리팩토링은 자유
-//            refundToBuyerAndPublishEvent 활용 trade랑 card 있어야함 -> 제목 필요
+//            refundBuyerEscrow 활용 trade랑 card 있어야함 -> 제목 필요
 //            나는 wallet 의존관계 주입받아서 쓸꺼 굳이 엔티티 계층 접근필요 X
 
 //            Wallet buyerWallet = tradeSupport.findLockedWallet(trade.getBuyer().getId());
@@ -126,7 +127,7 @@ public class TradeCancelServiceImpl implements TradeCancelService {
 
             // 알림 추가
 
-        } else if (trade.getSeller() == null){
+        } else if (trade.getSeller() == null) {
             // 취소 엔티티 저장: ACCEPTED & resolvedAt
             TradeCancel cancel = TradeCancel.builder()
                     .trade(trade)
@@ -145,10 +146,9 @@ public class TradeCancelServiceImpl implements TradeCancelService {
             // 거래 취소 및 환불 및 이유 입력
             trade.cancel(requester);
             trade.changeCancelReason(reason);
-            refundToBuyerAndPublishEvent(trade, card, buyer);
+            refundBuyerEscrow(trade, card, buyer);
             // 패널티 x
-        }
-        else {
+        } else {
             // 구매자 : 한 번이라도 요청했으면 무조건 중복 차단
             if (prevCancelOpt.isPresent()) {
                 throw new TradeAlreadyCancelRequestedException();
@@ -195,11 +195,11 @@ public class TradeCancelServiceImpl implements TradeCancelService {
 
         // 카드 상태 처리
         // 지금 구매자가 취소 요청 상태인데 구매글이면 삭제 처리 / 판매글이면 다시 판매중으로
-        if(card.getCardCategory() == CardCategory.BUY){
+        if (card.getCardCategory() == CardCategory.BUY) {
 //            card.changeSellStatus(SellStatus.CANCEL);
             // 카드 삭제 처리
             cardRepo.deleteById(card.getId());
-        } else if (card.getCardCategory() == CardCategory.SELL){
+        } else if (card.getCardCategory() == CardCategory.SELL) {
             card.changeSellStatus(SellStatus.SELLING);
         }
 
@@ -209,7 +209,7 @@ public class TradeCancelServiceImpl implements TradeCancelService {
         trade.changeCancelReason(cancel.getReason());//취소 사유
 
 //        위와 마찬가지 이유
-        refundToBuyerAndPublishEvent(trade, card, buyer);
+        refundBuyerEscrow(trade, card, buyer);
 //        // 환불 로직 (TradeProgressService.cancelTrade에 있던 부분 재활용)
 //        long refundMoney = (long) (trade.getPriceGb() - trade.getPoint()) * trade.getDataAmount();
 //        if (refundMoney > 0) wallet.depositMoney(refundMoney);
@@ -220,26 +220,25 @@ public class TradeCancelServiceImpl implements TradeCancelService {
         penaltyService.givePenalty(cancel.getRequester().getEmail(), PenaltyReason.BUYER_FAULT);
     }
 
-    public void refundToBuyerAndPublishEvent(Trade trade, Card card, Member buyer) {
-        long moneyToRefund = trade.getPriceGb() - trade.getPoint();
+    public void refundBuyerEscrow(Trade trade, Card card, Member buyer) {
+        long moneyToRefund = trade.getMoneyAmount();
+        int point = trade.getPointOrZero();
+
+        CompositeBalanceResult result =
+                walletService.releaseCompositeEscrow(buyer.getId(), moneyToRefund, point);
 
         if (moneyToRefund > 0) {
-            long moneyFinalBalance = walletService.depositMoney(buyer.getId(), moneyToRefund);
-
             String title = String.format("%s %dGB 거래 취소",
                     card.getCarrier().name(), card.getDataAmount());
             assetRecorder.recordTradeCancelRefund(
-                    buyer.getId(), trade.getId(), title, AssetType.MONEY, moneyToRefund, moneyFinalBalance);
+                    buyer.getId(), trade.getId(), title, AssetType.MONEY, moneyToRefund, result.moneyBalance());
         }
 
-        long pointToRefund = trade.getPoint();
-        if (pointToRefund > 0) {
-            long pointFinalBalance = walletService.depositPoint(buyer.getId(), pointToRefund);
-
+        if (point > 0) {
             String title = String.format("%s %dGB 포인트 환불",
                     card.getCarrier().name(), card.getDataAmount());
             assetRecorder.recordTradeCancelRefund(
-                    buyer.getId(), trade.getId(), title, AssetType.POINT, pointToRefund, pointFinalBalance);
+                    buyer.getId(), trade.getId(), title, AssetType.POINT, (long) point, result.pointBalance());
         }
     }
 
@@ -328,7 +327,7 @@ public class TradeCancelServiceImpl implements TradeCancelService {
         Card card = findLockedCard(trade.getCardId());
 
         if (trade.getStatus() == TradeStatus.PAYMENT_CONFIRMED) {
-            refundToBuyerAndPublishEvent(trade, card, trade.getBuyer());
+            refundBuyerEscrow(trade, card, trade.getBuyer());
         }
 
         // 거래 수락전이라면 카드를 삭제하면 안됨

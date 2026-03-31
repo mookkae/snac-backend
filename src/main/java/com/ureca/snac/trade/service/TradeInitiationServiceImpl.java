@@ -17,9 +17,7 @@ import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.exception.TradeNotFoundException;
 import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.interfaces.TradeInitiationService;
-import com.ureca.snac.wallet.entity.Wallet;
-import com.ureca.snac.wallet.exception.WalletNotFoundException;
-import com.ureca.snac.wallet.repository.WalletRepository;
+import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +40,6 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
 
     private final TradeRepository tradeRepository;
     private final MemberRepository memberRepository;
-    private final WalletRepository walletRepository;
     private final CardRepository cardRepository;
 
     private final WalletService walletService;
@@ -73,11 +70,9 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
     )
     @Transactional
     public Long payRealTimeTrade(CreateRealTimeTradePaymentRequest createRealTimeTradePaymentRequest, String username) {
-        // 1. 거래 조회 (락 걸어서)
         Member member = findMember(username);
         Trade trade = findLockedTrade(createRealTimeTradePaymentRequest.getTradeId());
         Card card = findCard(trade.getCardId());
-        Wallet wallet = findLockedWallet(member.getId());
 
         long moneyToUse = createRealTimeTradePaymentRequest.getMoney();
         long pointToUse = createRealTimeTradePaymentRequest.getPoint();
@@ -87,34 +82,25 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         trade.ensureBuyer(member); // 구매자만 결제할 수 있어야 함
         trade.ensurePaymentMatches(moneyToUse, pointToUse);
 
-        // 1.결제 먼저
-        long moneyBalanceAfter = -1L;
+        // 1. 결제 먼저 (에스크로 보관: balance → escrow)
+        CompositeBalanceResult escrowResult =
+                walletService.moveCompositeToEscrow(member.getId(), moneyToUse, pointToUse);
 
-        // 금액 및 포인트 차감
-        if (moneyToUse > 0) {
-            moneyBalanceAfter = walletService.withdrawMoney(member.getId(), moneyToUse);
-        }
+        trade.markPaymentConfirmed((int) createRealTimeTradePaymentRequest.getPoint()); // Accepted -> Confirmed
 
-        long pointBalanceAfter = -1L;
-        if (pointToUse > 0) {
-            pointBalanceAfter = walletService.withdrawPoint(member.getId(), pointToUse);
-        }
-
-        trade.markPaymentConfirmed(createRealTimeTradePaymentRequest.getPoint()); // Accepted -> Confirmed
-
-        // 3 기록
+        // 2. 기록
         if (moneyToUse > 0) {
             String title = String.format("%s %dGB 머니 사용",
                     card.getCarrier().name(), card.getDataAmount());
             assetRecorder.recordTradeBuy(
-                    member.getId(), trade.getId(), title, AssetType.MONEY, moneyToUse, moneyBalanceAfter);
+                    member.getId(), trade.getId(), title, AssetType.MONEY, moneyToUse, escrowResult.moneyBalance());
         }
 
         if (pointToUse > 0) {
             String title = String.format("%s %dGB 포인트 사용",
                     card.getCarrier().name(), card.getDataAmount());
             assetRecorder.recordTradeBuy(
-                    member.getId(), trade.getId(), title, AssetType.POINT, pointToUse, pointBalanceAfter);
+                    member.getId(), trade.getId(), title, AssetType.POINT, pointToUse, escrowResult.pointBalance());
         }
 
         return trade.getId();
@@ -241,32 +227,25 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
         card.ensureCreatableBy(member, requiredStatus); // 거래 생성 소유자 조건 확인: 판매글 -> 타인, 구매글 -> 본인
         card.ensurePaymentMatches(moneyToUse, pointToUse); // 결제 금액 검증 (금액 + 포인트 == 카드 가격)
 
-        long moneyBalanceAfter = -1L;
-        if (moneyToUse > 0) {
-            moneyBalanceAfter = walletService.withdrawMoney(member.getId(), moneyToUse);
-        }
+        // 1. 결제 (에스크로 보관: balance → escrow)
+        CompositeBalanceResult escrowResult =
+                walletService.moveCompositeToEscrow(member.getId(), moneyToUse, pointToUse);
 
-        long pointBalanceAfter = -1L;
-        if (pointToUse > 0) {
-            pointBalanceAfter = walletService.withdrawPoint(member.getId(), pointToUse);
-        }
-
-        // 2, 거래 생성
-        // 거래 엔티티 생성 및 저장
+        // 2. 거래 생성 및 저장
         Trade trade = Trade.buildTrade((int) pointToUse, member, member.getPhone(), card, requiredStatus);
         tradeRepository.save(trade);
 
-        // 3 기록
+        // 3. 기록
         if (moneyToUse > 0) {
             String title = String.format("%s %dGB 머니 사용", trade.getCarrier().name(), trade.getDataAmount());
             assetRecorder.recordTradeBuy(
-                    member.getId(), trade.getId(), title, AssetType.MONEY, moneyToUse, moneyBalanceAfter);
+                    member.getId(), trade.getId(), title, AssetType.MONEY, moneyToUse, escrowResult.moneyBalance());
         }
 
         if (pointToUse > 0) {
             String title = String.format("%s %dGB 포인트 사용", trade.getCarrier().name(), trade.getDataAmount());
             assetRecorder.recordTradeBuy(
-                    member.getId(), trade.getId(), title, AssetType.POINT, pointToUse, pointBalanceAfter);
+                    member.getId(), trade.getId(), title, AssetType.POINT, pointToUse, escrowResult.pointBalance());
         }
 
         // 카드 상태 변경 (판매글이면 TRADING, 구매글이면 SELLING)
@@ -281,10 +260,6 @@ public class TradeInitiationServiceImpl implements TradeInitiationService {
 
     private Member findMember(String email) {
         return memberRepository.findByEmail(email).orElseThrow(MemberNotFoundException::new);
-    }
-
-    private Wallet findLockedWallet(Long memberId) {
-        return walletRepository.findByMemberIdWithLock(memberId).orElseThrow(WalletNotFoundException::new);
     }
 
     private Card findLockedCard(Long cardId) {
