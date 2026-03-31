@@ -30,7 +30,7 @@ class TossPaymentsErrorHandlerTest {
 
     @BeforeEach
     void setUp() {
-        errorHandler = new TossPaymentsErrorHandler();
+        errorHandler = new TossPaymentsErrorHandler(objectMapper);
     }
 
     @Nested
