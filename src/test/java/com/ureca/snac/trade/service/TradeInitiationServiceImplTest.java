@@ -6,9 +6,7 @@ import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.support.RetryTestSupport;
-import com.ureca.snac.trade.service.TradeAlertService;
 import com.ureca.snac.support.fixture.MemberFixture;
-import com.ureca.snac.support.fixture.WalletFixture;
 import com.ureca.snac.trade.controller.request.CreateRealTimeTradePaymentRequest;
 import com.ureca.snac.trade.controller.request.CreateTradeRequest;
 import com.ureca.snac.trade.entity.Trade;
@@ -16,8 +14,7 @@ import com.ureca.snac.trade.fixture.CardFixture;
 import com.ureca.snac.trade.fixture.TradeFixture;
 import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.interfaces.TradeInitiationService;
-import com.ureca.snac.wallet.entity.Wallet;
-import com.ureca.snac.wallet.repository.WalletRepository;
+import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,16 +22,16 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.TransientDataAccessException;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-
 import org.springframework.retry.ExhaustedRetryException;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * TradeInitiationServiceImpl 단위 테스트 (Spring Support)
@@ -55,9 +52,6 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
     private MemberRepository memberRepository;
 
     @MockitoBean
-    private WalletRepository walletRepository;
-
-    @MockitoBean
     private CardRepository cardRepository;
 
     @MockitoBean
@@ -76,7 +70,6 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
     private Card tradingCard;
     private Card sellingCard;
     private Trade acceptedTrade;
-    private Wallet wallet;
 
     private static final Long TRADE_ID = 1L;
     private static final Long CARD_ID = 1L;
@@ -89,7 +82,6 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
         tradingCard = CardFixture.createTradingCard(CARD_ID, seller, PRICE);
         sellingCard = CardFixture.createSellingCard(CARD_ID, seller, PRICE);
         acceptedTrade = TradeFixture.createAcceptedTrade(TRADE_ID, buyer, CARD_ID, PRICE);
-        wallet = WalletFixture.createWalletWithId(1L, buyer);
     }
 
     @Nested
@@ -117,16 +109,17 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
                 given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
                 given(tradeRepository.findLockedById(anyLong())).willReturn(Optional.of(acceptedTrade));
                 given(cardRepository.findById(anyLong())).willReturn(Optional.of(tradingCard));
-                given(walletRepository.findByMemberIdWithLock(anyLong())).willReturn(Optional.of(wallet));
-                given(walletService.withdrawMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {});
+
+                given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        });
 
                 // when & then
                 assertThatThrownBy(() ->
                         tradeInitiationService.payRealTimeTrade(request, "buyer@test.com")
                 ).isInstanceOf(TransientDataAccessException.class);
 
-                verify(walletService, times(3)).withdrawMoney(anyLong(), anyLong());
+                verify(walletService, times(3)).moveCompositeToEscrow(anyLong(), anyLong(), anyLong());
             }
 
             @Test
@@ -136,18 +129,20 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
                 given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
                 given(tradeRepository.findLockedById(anyLong())).willReturn(Optional.of(acceptedTrade));
                 given(cardRepository.findById(anyLong())).willReturn(Optional.of(tradingCard));
-                given(walletRepository.findByMemberIdWithLock(anyLong())).willReturn(Optional.of(wallet));
-                given(walletService.withdrawMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {})
-                        .willThrow(new TransientDataAccessException("DB timeout") {})
-                        .willReturn(5000L);
+
+                given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        })
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        })
+                        .willReturn(new CompositeBalanceResult(5000L, 10000L, 0L, 0L));
                 given(tradeRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
                 // when
                 tradeInitiationService.payRealTimeTrade(request, "buyer@test.com");
 
                 // then
-                verify(walletService, times(3)).withdrawMoney(anyLong(), anyLong());
+                verify(walletService, times(3)).moveCompositeToEscrow(anyLong(), anyLong(), anyLong());
             }
 
             @Test
@@ -157,9 +152,10 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
                 given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
                 given(tradeRepository.findLockedById(anyLong())).willReturn(Optional.of(acceptedTrade));
                 given(cardRepository.findById(anyLong())).willReturn(Optional.of(tradingCard));
-                given(walletRepository.findByMemberIdWithLock(anyLong())).willReturn(Optional.of(wallet));
-                given(walletService.withdrawMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {});
+
+                given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        });
 
                 // when & then
                 assertThatThrownBy(() ->
@@ -176,8 +172,8 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
                 given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
                 given(tradeRepository.findLockedById(anyLong())).willReturn(Optional.of(acceptedTrade));
                 given(cardRepository.findById(anyLong())).willReturn(Optional.of(tradingCard));
-                given(walletRepository.findByMemberIdWithLock(anyLong())).willReturn(Optional.of(wallet));
-                given(walletService.withdrawMoney(anyLong(), anyLong()))
+
+                given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
                         .willThrow(new IllegalStateException("non-retryable error"));
 
                 // when & then
@@ -187,7 +183,7 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
                         tradeInitiationService.payRealTimeTrade(request, "buyer@test.com")
                 ).isInstanceOfAny(IllegalStateException.class, ExhaustedRetryException.class);
 
-                verify(walletService, times(1)).withdrawMoney(anyLong(), anyLong());
+                verify(walletService, times(1)).moveCompositeToEscrow(anyLong(), anyLong(), anyLong());
             }
         }
     }
@@ -212,15 +208,16 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
             // given
             given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
             given(cardRepository.findLockedById(anyLong())).willReturn(Optional.of(sellingCard));
-            given(walletService.withdrawMoney(anyLong(), anyLong()))
-                    .willThrow(new TransientDataAccessException("DB timeout") {});
+            given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
+                    .willThrow(new TransientDataAccessException("DB timeout") {
+                    });
 
             // when & then
             assertThatThrownBy(() ->
                     tradeInitiationService.createSellTrade(request, "buyer@test.com")
             ).isInstanceOf(TransientDataAccessException.class);
 
-            verify(walletService, times(3)).withdrawMoney(anyLong(), anyLong());
+            verify(walletService, times(3)).moveCompositeToEscrow(anyLong(), anyLong(), anyLong());
         }
 
         @Test
@@ -229,8 +226,9 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
             // given - 3회 모두 실패
             given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
             given(cardRepository.findLockedById(anyLong())).willReturn(Optional.of(sellingCard));
-            given(walletService.withdrawMoney(anyLong(), anyLong()))
-                    .willThrow(new TransientDataAccessException("DB timeout") {});
+            given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
+                    .willThrow(new TransientDataAccessException("DB timeout") {
+                    });
 
             // when & then
             assertThatThrownBy(() ->
@@ -263,15 +261,16 @@ class TradeInitiationServiceImplTest extends RetryTestSupport {
             // given
             given(memberRepository.findByEmail(anyString())).willReturn(Optional.of(buyer));
             given(cardRepository.findLockedById(anyLong())).willReturn(Optional.of(pendingCard));
-            given(walletService.withdrawMoney(anyLong(), anyLong()))
-                    .willThrow(new TransientDataAccessException("DB timeout") {});
+            given(walletService.moveCompositeToEscrow(anyLong(), anyLong(), anyLong()))
+                    .willThrow(new TransientDataAccessException("DB timeout") {
+                    });
 
             // when & then
             assertThatThrownBy(() ->
                     tradeInitiationService.createBuyTrade(request, "buyer@test.com")
             ).isInstanceOf(TransientDataAccessException.class);
 
-            verify(walletService, times(3)).withdrawMoney(anyLong(), anyLong());
+            verify(walletService, times(3)).moveCompositeToEscrow(anyLong(), anyLong(), anyLong());
         }
     }
 }
