@@ -10,6 +10,7 @@ import com.ureca.snac.trade.fixture.CardFixture;
 import com.ureca.snac.trade.fixture.TradeFixture;
 import com.ureca.snac.trade.service.TradeAlertService;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
+import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +22,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.*;
@@ -31,7 +33,6 @@ import static org.mockito.Mockito.*;
  *
  * @Retryable AOP 동작 검증을 위해 Spring Context를 로드하지만,
  * 모든 협력 객체는 Mock으로 대체하여 단위 기능을 검증함.
- *
  * @Recover 메서드는 예외를 re-throw하지 않으므로,
  * 재시도 횟수와 Slack 알림을 동일 테스트에서 함께 검증함.
  */
@@ -87,14 +88,15 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
-                given(walletService.depositMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {});
+                given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        });
 
                 // when — @Recover가 예외를 삼키므로 정상 반환
                 tradeAutoItemProcessor.processRefund(trade);
 
                 // then
-                verify(walletService, times(3)).depositMoney(anyLong(), anyLong());
+                verify(walletService, times(3)).releaseCompositeEscrow(anyLong(), anyLong(), anyLong());
                 verify(tradeAlertService, times(1)).alertAutoRefundFailure(anyLong(), any());
             }
 
@@ -106,16 +108,18 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
-                given(walletService.depositMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {})
-                        .willThrow(new TransientDataAccessException("DB timeout") {})
-                        .willReturn(5000L);
+                given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        })
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        })
+                        .willReturn(new CompositeBalanceResult(PRICE, 0L, 0L, 0L));
 
                 // when
                 tradeAutoItemProcessor.processRefund(trade);
 
                 // then
-                verify(walletService, times(3)).depositMoney(anyLong(), anyLong());
+                verify(walletService, times(3)).releaseCompositeEscrow(anyLong(), anyLong(), anyLong());
                 verify(tradeAlertService, never()).alertAutoRefundFailure(anyLong(), any());
             }
         }
@@ -137,14 +141,15 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
-                given(walletService.depositMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {});
+                given(walletService.deductCompositeEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        });
 
                 // when — @Recover가 예외를 삼키므로 정상 반환
                 tradeAutoItemProcessor.processPayout(trade);
 
                 // then
-                verify(walletService, times(3)).depositMoney(anyLong(), anyLong());
+                verify(walletService, times(3)).deductCompositeEscrow(anyLong(), anyLong(), anyLong());
                 verify(tradeAlertService, times(1)).alertAutoPayoutFailure(anyLong(), any());
             }
 
@@ -156,16 +161,19 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
-                given(walletService.depositMoney(anyLong(), anyLong()))
-                        .willThrow(new TransientDataAccessException("DB timeout") {})
-                        .willThrow(new TransientDataAccessException("DB timeout") {})
-                        .willReturn(15000L);
+                given(walletService.deductCompositeEscrow(anyLong(), anyLong(), anyLong()))
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        })
+                        .willThrow(new TransientDataAccessException("DB timeout") {
+                        })
+                        .willReturn(new CompositeBalanceResult(0L, 0L, 0L, 0L));
+                given(walletService.depositMoney(anyLong(), anyLong())).willReturn(15000L);
 
                 // when
                 tradeAutoItemProcessor.processPayout(trade);
 
                 // then
-                verify(walletService, times(3)).depositMoney(anyLong(), anyLong());
+                verify(walletService, times(3)).deductCompositeEscrow(anyLong(), anyLong(), anyLong());
                 verify(tradeAlertService, never()).alertAutoPayoutFailure(anyLong(), any());
             }
         }
