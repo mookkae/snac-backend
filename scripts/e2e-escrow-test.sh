@@ -63,8 +63,12 @@ echo "흐름 선택:"
 echo "  [A] SELL 카드 흐름 - 판매자 SELL 카드 등록 → 구매자 즉시 구매"
 echo "  [B] BUY  카드 흐름 - 구매자 BUY 카드 등록 → 구매자 구매 신청 → 판매자 수락"
 echo ""
-read -p "선택 (A 또는 B): " FLOW
+FLOW=${1:-}
 FLOW=$(echo "$FLOW" | tr '[:lower:]' '[:upper:]')
+if [[ "$FLOW" != "A" && "$FLOW" != "B" ]]; then
+    read -p "선택 (A 또는 B): " FLOW
+    FLOW=$(echo "$FLOW" | tr '[:lower:]' '[:upper:]')
+fi
 [[ "$FLOW" != "A" && "$FLOW" != "B" ]] && log_error "A 또는 B만 입력 가능"
 
 # =============================================================================
@@ -87,9 +91,6 @@ code=$(create_account "$BUYER_EMAIL" "$BUYER_PW" "$BUYER_NICK" "$BUYER_PHONE")
 code=$(create_account "$SELLER_EMAIL" "$SELLER_PW" "$SELLER_NICK" "$SELLER_PHONE")
 [[ "$code" == "200" ]] && log_ok "판매자 생성: $SELLER_EMAIL" || log_info "판매자 이미 존재 (HTTP $code)"
 
-log_info "이벤트 체인 대기 (Wallet 생성 → 가입보너스, RabbitMQ 비동기)..."
-sleep 3
-
 # =============================================================================
 # STEP 2: 로그인 → JWT 토큰 획득
 # =============================================================================
@@ -110,6 +111,17 @@ log_ok "구매자 JWT: ${BUYER_TOKEN:0:40}..."
 SELLER_TOKEN=$(login "$SELLER_EMAIL" "$SELLER_PW")
 [[ -z "$SELLER_TOKEN" ]] && log_error "판매자 로그인 실패"
 log_ok "판매자 JWT: ${SELLER_TOKEN:0:40}..."
+
+log_info "이벤트 체인 대기 (Wallet 생성 → 가입보너스, RabbitMQ 비동기)..."
+elapsed=0; max_wait=15
+while [[ $elapsed -lt $max_wait ]]; do
+    points=$(curl -s "$BASE_URL/api/wallets/summary" \
+        -H "Authorization: Bearer $BUYER_TOKEN" | jq -r '.data.pointBalance // 0' 2>/dev/null)
+    [[ "${points:-0}" -ge 1000 ]] && break
+    sleep 1; elapsed=$((elapsed + 1))
+done
+[[ $elapsed -ge $max_wait ]] && log_error "가입 보너스 지급 타임아웃 (${max_wait}초)"
+log_ok "이벤트 체인 완료 (가입 보너스 ${points}P 지급 확인)"
 
 # =============================================================================
 # STEP 3: 구매자 머니 충전 (MockPaymentGatewayAdapter - 항상 성공)
