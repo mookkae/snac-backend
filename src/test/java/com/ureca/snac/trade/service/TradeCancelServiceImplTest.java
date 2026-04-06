@@ -7,6 +7,7 @@ import com.ureca.snac.board.repository.CardRepository;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.support.fixture.MemberFixture;
+import com.ureca.snac.trade.entity.CancelReason;
 import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.fixture.CardFixture;
 import com.ureca.snac.trade.fixture.TradeFixture;
