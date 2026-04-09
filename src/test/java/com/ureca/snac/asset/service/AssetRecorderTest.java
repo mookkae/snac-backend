@@ -8,16 +8,17 @@ import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.support.fixture.MemberFixture;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Optional;
 
@@ -311,23 +312,44 @@ class AssetRecorderTest {
         }
 
         @Test
-        @DisplayName("멱등성 : 중복 멱등키는 문제")
-        void record_duplicateIdempotencyKey_ignored() {
+        @DisplayName("멱등성 : 중복 멱등키 감지 시 DataIntegrityViolationException 발생")
+        void record_duplicateIdempotencyKey_throwsException() {
             // given
             Long paymentId = 100L;
             String idempotencyKey = "RECHARGE:" + paymentId;
 
             given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(true);
 
-            // when
-            assetRecorder.recordMoneyRecharge(member.getId(), paymentId, 10000L, 10000L);
+            // when & then
+            assertThatThrownBy(() ->
+                    assetRecorder.recordMoneyRecharge(member.getId(), paymentId, 10000L, 10000L))
+                    .isInstanceOf(DataIntegrityViolationException.class);
 
-            // then
             verify(assetHistoryRepository, never()).save(any());
 
             // 메트릭 검증
             assertThat(meterRegistry.get("idempotency_duplicate_blocked_total")
                     .counter().count()).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("멱등성 : DB 유니크 제약 위반(동시성) 시 DataIntegrityViolationException 그대로 전파")
+        void record_dataIntegrityViolation_propagatesDirectly() {
+            // given
+            Long paymentId = 200L;
+            String idempotencyKey = "RECHARGE:" + paymentId;
+
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(false);
+
+            doThrow(new DataIntegrityViolationException("Unique constraint violation"))
+                    .when(assetHistoryRepository).save(any());
+
+            // when & then : catch 없이 인프라 예외가 그대로 전파됨
+            assertThatThrownBy(() ->
+                    assetRecorder.recordMoneyRecharge(member.getId(), paymentId, 5000L, 5000L))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+
+            verify(assetHistoryRepository, times(1)).save(any());
         }
     }
 }

@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -119,14 +120,18 @@ public class AssetRecorderImpl implements AssetRecorder {
     private void saveWithIdempotency(AssetHistory history) {
         String idempotencyKey = history.getIdempotencyKey();
         if (assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)) {
-            log.warn("[자산 내역 기록] 중복 요청 무시 (멱등성). idempotencyKey: {}", idempotencyKey);
-            Counter.builder("idempotency_duplicate_blocked_total")
-                    .register(meterRegistry)
-                    .increment();
-            return;
+            log.warn("[자산 내역 기록] 중복 요청 감지 (멱등성). idempotencyKey: {}", idempotencyKey);
+            incrementDuplicateCounter();
+            throw new DataIntegrityViolationException("중복 멱등키: " + idempotencyKey);
         }
 
         assetHistoryRepository.save(history);
         log.info("[자산 내역 기록] 저장 완료. idempotencyKey: {}", idempotencyKey);
+    }
+
+    private void incrementDuplicateCounter() {
+        Counter.builder("idempotency_duplicate_blocked_total")
+                .register(meterRegistry)
+                .increment();
     }
 }
