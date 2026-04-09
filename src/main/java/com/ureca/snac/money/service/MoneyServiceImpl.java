@@ -11,6 +11,7 @@ import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.dto.MoneyRechargeSuccessResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.event.alert.AutoCancelFailureEvent;
+import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.service.PaymentService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -100,6 +101,10 @@ public class MoneyServiceImpl implements MoneyService {
             try {
                 // DB 저장 시도
                 moneyDepositor.deposit(payment, member, tossConfirmResponse);
+            } catch (PaymentAlreadySuccessException e) {
+                // 정상적인 멱등성 보장 응답: 이미 처리된 결제, DB 장애 아님 → Auto-Cancel 불필요
+                log.info("[머니 충전 처리] 이미 처리된 결제. 멱등성 보장 응답 반환. orderId: {}", orderId);
+                return MoneyRechargeSuccessResponse.of(orderId, paymentKey, amount);
             } catch (Exception e) {
                 // Toss 성공 -> 우리 DB 실패 Auto-Cancel
                 log.error("[결제 누락 위험] Toss 승인 완료 but DB 실패. Auto-Cancel 시도. orderId: {}", orderId);

@@ -8,7 +8,8 @@ import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentMethod;
 import com.ureca.snac.payment.entity.PaymentStatus;
-import com.ureca.snac.payment.exception.PaymentAlreadyProcessedPaymentException;
+import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
+import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
@@ -54,10 +55,15 @@ public class MoneyDepositor {
                 .orElseThrow(PaymentNotFoundException::new);
 
         // 락 획득 후 상태 확인 - 이미 처리된 경우 예외 (HTTP 4xx)
+        if (lockedPayment.getStatus() == PaymentStatus.SUCCESS) {
+            log.warn("[머니 입금 처리] 이미 처리된 결제. 멱등성 보장. paymentId: {}", payment.getId());
+            throw new PaymentAlreadySuccessException();
+        }
+
         if (lockedPayment.getStatus() != PaymentStatus.PENDING) {
-            log.warn("[머니 입금 처리] 이미 처리된 결제. 중복 처리 방지. paymentId: {}, status: {}",
+            log.error("[머니 입금 처리] 잘못된 결제 상태 (취소 등). paymentId: {}, status: {}",
                     payment.getId(), lockedPayment.getStatus());
-            throw new PaymentAlreadyProcessedPaymentException();
+            throw new AlreadyCanceledPaymentException();
         }
 
         // 락이 걸린 영속 객체를 사용하여 모든 작업 수행

@@ -94,11 +94,11 @@ class PaymentTest {
             // when, then
             assertThatThrownBy(() ->
                     payment.complete("pk_test", PaymentMethod.CARD, OffsetDateTime.now())
-            ).isInstanceOf(PaymentAlreadyProcessedPaymentException.class);
+            ).isInstanceOf(PaymentAlreadySuccessException.class);
         }
 
         @Test
-        @DisplayName("실패 : CANCELED 상태에서 complete 호출")
+        @DisplayName("실패 : CANCELED 상태에서 complete 호출 -> AlreadyCanceledPaymentException")
         void complete_FromCanceled_ThrowsException() {
             // given
             Payment payment = PaymentFixture.builder()
@@ -109,7 +109,7 @@ class PaymentTest {
             // when, then
             assertThatThrownBy(() ->
                     payment.complete("pk_test", PaymentMethod.CARD, OffsetDateTime.now())
-            ).isInstanceOf(PaymentAlreadyProcessedPaymentException.class);
+            ).isInstanceOf(AlreadyCanceledPaymentException.class);
         }
     }
 
@@ -259,7 +259,21 @@ class PaymentTest {
 
             // when, then
             assertThatThrownBy(() -> payment.validateForConfirmation(member, 10000L))
-                    .isInstanceOf(PaymentAlreadyProcessedPaymentException.class);
+                    .isInstanceOf(PaymentAlreadySuccessException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCELED 상태 -> AlreadyCanceledPaymentException")
+        void validateForConfirmation_CanceledStatus_ThrowsException() {
+            // given
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCELED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.validateForConfirmation(member, 10000L))
+                    .isInstanceOf(AlreadyCanceledPaymentException.class);
         }
 
         @Test

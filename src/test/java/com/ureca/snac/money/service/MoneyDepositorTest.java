@@ -5,7 +5,7 @@ import com.ureca.snac.infra.dto.response.TossConfirmResponse;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.payment.entity.Payment;
-import com.ureca.snac.payment.exception.PaymentAlreadyProcessedPaymentException;
+import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.support.IntegrationTestSupport;
 import com.ureca.snac.support.fixture.MemberFixture;
@@ -137,16 +137,15 @@ class MoneyDepositorTest extends IntegrationTestSupport {
         class IdempotencyTest {
 
             @Test
-            @DisplayName("정상 : 이미 처리된 충전 요청(SUCCESS 상태)은 PaymentAlreadyProcessedPaymentException 반환")
+            @DisplayName("정상 : 이미 처리된 충전 요청(SUCCESS 상태)은 PaymentAlreadySuccessException 반환")
             void deposit_ShouldThrowIfAlreadyProcessed() {
-                // given: FOR UPDATE 락 조회 시 이미 SUCCESS 상태인 Payment 반환
-                Payment successPayment = PaymentFixture.createSuccessPayment(member);
-                given(paymentRepository.findByIdForUpdate(any())).willReturn(Optional.of(successPayment));
+            // given: FOR UPDATE 락 조회 시 이미 SUCCESS 상태인 Payment 반환
+            Payment successPayment = PaymentFixture.createSuccessPayment(member);
+            given(paymentRepository.findByIdForUpdate(any())).willReturn(Optional.of(successPayment));
 
-                // when & then: 중복 처리 예외 반환 (HTTP 4xx)
-                assertThatThrownBy(() -> moneyDepositor.deposit(payment, member, tossConfirmResponse))
-                        .isInstanceOf(PaymentAlreadyProcessedPaymentException.class);
-
+            // when & then: 중복 처리 예외 반환 (HTTP 4xx)
+            assertThatThrownBy(() -> moneyDepositor.deposit(payment, member, tossConfirmResponse))
+                    .isInstanceOf(PaymentAlreadySuccessException.class);
                 // 입금 처리 호출 안 됨
                 verify(moneyRechargeRepository, never()).save(any());
                 verify(walletService, never()).depositMoney(anyLong(), anyLong());
