@@ -150,7 +150,7 @@ class TossPaymentsErrorHandlerTest {
         }
 
         @Test
-        @DisplayName("성공 : ALREADY_PROCESSED_PAYMENT -> PaymentAlreadyProcessedPaymentException")
+        @DisplayName("성공 : ALREADY_PROCESSED_PAYMENT -> PaymentAlreadySuccessException")
         void handleError_AlreadyProcessed_ThrowsPaymentAlreadyProcessedException() throws Exception {
             ClientHttpResponse response = mockResponseWithBody(
                     HttpStatus.CONFLICT,
@@ -158,7 +158,7 @@ class TossPaymentsErrorHandlerTest {
             );
 
             assertThatThrownBy(() -> errorHandler.handleError(TEST_URI, HttpMethod.POST, response))
-                    .isInstanceOf(PaymentAlreadyProcessedPaymentException.class);
+                    .isInstanceOf(PaymentAlreadySuccessException.class);
         }
 
         @Test

@@ -83,7 +83,7 @@ public class TossPaymentsErrorHandler implements ResponseErrorHandler {
                 throw new TossInvalidApiKeyException();
 
             case ALREADY_PROCESSED_PAYMENT:
-                throw new PaymentAlreadyProcessedPaymentException();
+                throw new PaymentAlreadySuccessException();
 
             default:
                 String detailedErrorMessage = String.format(

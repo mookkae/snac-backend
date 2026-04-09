@@ -67,8 +67,11 @@ public class Payment extends BaseTimeEntity {
 
     // 상태 완료
     public void complete(String paymentKey, PaymentMethod method, OffsetDateTime paidAt) {
+        if (this.status == PaymentStatus.SUCCESS) {
+            throw new PaymentAlreadySuccessException();
+        }
         if (this.status != PaymentStatus.PENDING) {
-            throw new PaymentAlreadyProcessedPaymentException();
+            throw new AlreadyCanceledPaymentException();
         }
         this.paymentKey = paymentKey;
         this.method = method;
@@ -100,8 +103,11 @@ public class Payment extends BaseTimeEntity {
 
     // 유효성 검증 메소드
     public void validateForConfirmation(Member member, Long amount) {
+        if (this.status == PaymentStatus.SUCCESS) {
+            throw new PaymentAlreadySuccessException();
+        }
         if (this.status != PaymentStatus.PENDING) {
-            throw new PaymentAlreadyProcessedPaymentException();
+            throw new AlreadyCanceledPaymentException();
         }
         if (!isOwner(member)) {
             throw new PaymentOwnershipMismatchException();

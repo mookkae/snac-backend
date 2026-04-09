@@ -12,7 +12,7 @@ import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.event.alert.AutoCancelFailureEvent;
-import com.ureca.snac.payment.exception.PaymentAlreadyProcessedPaymentException;
+import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.exception.TossInvalidCardInfoException;
 import com.ureca.snac.payment.exception.TossNotEnoughBalanceException;
 import com.ureca.snac.payment.exception.TossRetryableException;
@@ -184,12 +184,12 @@ class MoneyServiceTest {
                 // given : PaymentService가 이미 처리된 Payment에 대해 예외 발생
                 given(memberRepository.findByEmail(EMAIL)).willReturn(Optional.of(member));
                 given(paymentService.findAndValidateForConfirmation(ORDER_ID, AMOUNT, member))
-                        .willThrow(new PaymentAlreadyProcessedPaymentException());
+                        .willThrow(new PaymentAlreadySuccessException());
 
                 // when, then
                 assertThatThrownBy(() ->
                         moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, EMAIL)
-                ).isInstanceOf(PaymentAlreadyProcessedPaymentException.class);
+                ).isInstanceOf(PaymentAlreadySuccessException.class);
 
                 // 외부 API 호출 안 함
                 verify(paymentGatewayAdapter, never())
