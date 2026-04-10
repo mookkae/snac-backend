@@ -4,6 +4,8 @@ import com.ureca.snac.asset.entity.AssetType;
 import com.ureca.snac.asset.entity.TransactionCategory;
 import com.ureca.snac.asset.entity.TransactionType;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -34,6 +36,8 @@ public record AssetHistoryListRequest(
 
         @Schema(description = "한 페이지의 보여줄 수", defaultValue = "20")
         @NotNull
+        @Min(value = 1, message = "조회 사이즈는 1 이상이어야 합니다.")
+        @Max(value = 100, message = "조회 사이즈는 100을 초과할 수 없습니다.")
         Integer size
 ) {
 }

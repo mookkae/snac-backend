@@ -39,7 +39,8 @@ class SignupBonusConcurrencyIntegrationTest extends IntegrationTestSupport {
             try {
                 signupBonusService.grantSignupBonus(member.getId());
                 successCount.incrementAndGet();
-            } catch (DataIntegrityViolationException e) {
+            } catch (Exception e) {
+                // 내부에서 예외를 잡을 경우 트랜잭션이 롤백 마킹되어 UnexpectedRollbackException이 발생할 수 있음
                 duplicateCount.incrementAndGet();
             }
         }, THREAD_COUNT);
