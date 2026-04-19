@@ -29,7 +29,7 @@ class MoneyRechargeTest {
     class CreateTest {
 
         @Test
-        @DisplayName("성공 : SUCCESS 상태 Payment → MoneyRecharge 생성")
+        @DisplayName("성공 : SUCCESS 상태 Payment -> MoneyRecharge 생성")
         void create_WithSuccessPayment_CreatesMoneyRecharge() {
             // given
             Payment payment = PaymentFixture.createSuccessPayment(member);
@@ -61,6 +61,20 @@ class MoneyRechargeTest {
             Payment payment = PaymentFixture.builder()
                     .member(member)
                     .status(PaymentStatus.CANCELED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> MoneyRecharge.create(payment))
+                    .isInstanceOf(InvalidPaymentForRechargeException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCEL_REQUESTED 상태 Payment")
+        void create_WithCancelRequestedPayment_ThrowsException() {
+            // given
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
                     .build();
 
             // when, then

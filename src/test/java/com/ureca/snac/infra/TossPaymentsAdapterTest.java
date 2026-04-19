@@ -1,37 +1,45 @@
 package com.ureca.snac.infra;
 
+import com.ureca.snac.common.exception.ExternalApiException;
 import com.ureca.snac.infra.dto.response.TossCancelResponse;
 import com.ureca.snac.infra.dto.response.TossConfirmResponse;
-import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
+import com.ureca.snac.infra.dto.response.TossInquiryResponse;
+import com.ureca.snac.infra.exception.*;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
-import com.ureca.snac.payment.dto.PaymentCancelResponse;
-import com.ureca.snac.payment.exception.TossRetryableException;
+import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
+import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
+import com.ureca.snac.payment.exception.PaymentNotFoundException;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.GatewayPaymentStatus;
+import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
+import com.ureca.snac.payment.port.out.dto.PaymentInquiryResult;
+import com.ureca.snac.payment.port.out.exception.GatewayNotCancelableException;
+import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
+import com.ureca.snac.payment.port.out.exception.InsufficientCardBalanceException;
+import com.ureca.snac.payment.port.out.exception.InvalidPaymentCardException;
 import com.ureca.snac.support.IntegrationTestSupport;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import java.time.OffsetDateTime;
-
+import static com.ureca.snac.common.BaseCode.PAYMENT_GATEWAY_CONFIG_ERROR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-/**
- * TossPaymentsAdapter 단위 테스트
- * <p>
- * confirmPayment: 결제 승인 (@Retryable 동작 검증)
- * cancelPayment: 결제 취소 (@Retryable 동작 검증)
- */
 @DisplayName("TossPaymentsAdapterTest 단위 테스트")
 class TossPaymentsAdapterTest extends IntegrationTestSupport {
 
     @Autowired
-    private PaymentGatewayAdapter paymentGatewayAdapter;
+    private PaymentGatewayPort paymentGatewayPort;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @MockitoBean
     private TossPaymentsClient tossPaymentsClient;
@@ -45,56 +53,65 @@ class TossPaymentsAdapterTest extends IntegrationTestSupport {
     class ConfirmPaymentTest {
 
         @Nested
-        @DisplayName("재시도 동작")
-        class RetryBehaviorTest {
+        @DisplayName("재시도 및 예외 변환")
+        class ExceptionMappingTest {
 
             @Test
-            @DisplayName("정상 : TossRetryableException 발생 시 최대 3회 재시도")
+            @DisplayName("정상 : TossRetryableException 발생 시 최대 3회 재시도 후 GatewayTransientException 전파")
             void confirmPayment_ShouldRetryOnTossRetryableException() {
-                // given: 모든 호출에서 TossRetryableException 발생
                 given(tossPaymentsClient.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                        .willThrow(new TossRetryableException(TossErrorCode.SERVICE_UNAVAILABLE));
+                        .willThrow(new TossRetryableException());
 
-                // when & then: 예외 발생하며 3회 호출됨
                 assertThatThrownBy(() ->
-                        paymentGatewayAdapter.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
-                ).isInstanceOf(TossRetryableException.class);
+                        paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
+                ).isInstanceOf(GatewayTransientException.class);
 
                 verify(tossPaymentsClient, times(3)).confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
             }
 
             @Test
-            @DisplayName("정상 : 2회 실패 후 3회차에 성공하면 정상 응답 반환")
-            void confirmPayment_ShouldSucceedOnThirdAttempt() {
-                // given: 2번 실패 후 3번째 성공
-                TossConfirmResponse successResponse = TossResponseFixture.createConfirmResponse(PAYMENT_KEY);
-
+            @DisplayName("예외 : 이미 처리된 결제(TossAlreadyProcessedPaymentException) -> PaymentAlreadySuccessException 변환")
+            void confirmPayment_ShouldMapAlreadyProcessedException() {
                 given(tossPaymentsClient.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                        .willThrow(new TossRetryableException(TossErrorCode.PROVIDER_ERROR))
-                        .willThrow(new TossRetryableException(TossErrorCode.PROVIDER_ERROR))
-                        .willReturn(successResponse);
+                        .willThrow(new TossAlreadyProcessedPaymentException());
 
-                // when
-                TossConfirmResponse response = paymentGatewayAdapter.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
-
-                // then: 성공 응답 반환, 총 3회 호출
-                assertThat(response).isEqualTo(successResponse);
-                verify(tossPaymentsClient, times(3)).confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
+                assertThatThrownBy(() ->
+                        paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
+                ).isInstanceOf(PaymentAlreadySuccessException.class);
             }
 
             @Test
-            @DisplayName("예외 : 재시도 불가능한 예외는 즉시 전파")
-            void confirmPayment_ShouldNotRetryOnNonRetryableException() {
-                // given: RuntimeException은 재시도 대상이 아님
+            @DisplayName("예외 : 유효하지 않은 카드(TossInvalidCardInfoException) -> InvalidPaymentCardException 변환")
+            void confirmPayment_ShouldMapInvalidCardException() {
                 given(tossPaymentsClient.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
-                        .willThrow(new RuntimeException("Non-retryable error"));
+                        .willThrow(new TossInvalidCardInfoException());
 
-                // when & then: 예외 발생하며 1회만 호출됨
                 assertThatThrownBy(() ->
-                        paymentGatewayAdapter.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
-                ).isInstanceOf(RuntimeException.class);
+                        paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
+                ).isInstanceOf(InvalidPaymentCardException.class);
+            }
 
-                verify(tossPaymentsClient, times(1)).confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
+            @Test
+            @DisplayName("예외 : 잔액 부족(TossNotEnoughBalanceException) -> InsufficientCardBalanceException 변환")
+            void confirmPayment_ShouldMapInsufficientBalanceException() {
+                given(tossPaymentsClient.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                        .willThrow(new TossNotEnoughBalanceException());
+
+                assertThatThrownBy(() ->
+                        paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
+                ).isInstanceOf(InsufficientCardBalanceException.class);
+            }
+
+            @Test
+            @DisplayName("예외 : API 키 오류(TossInvalidApiKeyException) -> ExternalApiException(PAYMENT_GATEWAY_CONFIG_ERROR) 변환")
+            void confirmPayment_ShouldMapInvalidApiKeyException() {
+                given(tossPaymentsClient.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
+                        .willThrow(new TossInvalidApiKeyException());
+
+                assertThatThrownBy(() ->
+                        paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
+                ).isInstanceOf(ExternalApiException.class)
+                        .hasFieldOrPropertyWithValue("baseCode", PAYMENT_GATEWAY_CONFIG_ERROR);
             }
         }
     }
@@ -106,58 +123,41 @@ class TossPaymentsAdapterTest extends IntegrationTestSupport {
         private static final String CANCEL_REASON = "Auto-cancel: DB 처리 실패";
 
         @Nested
-        @DisplayName("재시도 동작")
-        class RetryBehaviorTest {
+        @DisplayName("재시도 및 예외 변환")
+        class ExceptionMappingTest {
 
             @Test
-            @DisplayName("정상 : TossRetryableException 발생 시 최대 3회 재시도")
-            void cancelPayment_ShouldRetryOnTossRetryableException() {
-                // given: 모든 호출에서 TossRetryableException 발생
+            @DisplayName("예외 : 이미 취소된 결제(TossAlreadyCanceledPaymentException) -> AlreadyCanceledPaymentException 변환")
+            void cancelPayment_ShouldMapAlreadyCanceledException() {
                 given(tossPaymentsClient.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
-                        .willThrow(new TossRetryableException(TossErrorCode.SERVICE_UNAVAILABLE));
+                        .willThrow(new TossAlreadyCanceledPaymentException());
 
-                // when & then: 예외 발생하며 3회 호출됨
                 assertThatThrownBy(() ->
-                        paymentGatewayAdapter.cancelPayment(PAYMENT_KEY, CANCEL_REASON)
-                ).isInstanceOf(TossRetryableException.class);
-
-                verify(tossPaymentsClient, times(3)).cancelPayment(PAYMENT_KEY, CANCEL_REASON);
+                        paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON)
+                ).isInstanceOf(AlreadyCanceledPaymentException.class);
             }
 
             @Test
-            @DisplayName("정상 : 2회 실패 후 3회차에 성공하면 정상 응답 반환")
-            void cancelPayment_ShouldSucceedOnThirdAttempt() {
-                // given: 2번 실패 후 3번째 성공
-                TossCancelResponse tossCancelResponse = TossResponseFixture.createCancelResponse(
-                        PAYMENT_KEY, AMOUNT, CANCEL_REASON);
-
+            @DisplayName("예외 : 취소 불가 상태(TossNotCancelablePaymentException) -> GatewayNotCancelableException 변환")
+            void cancelPayment_ShouldMapNotCancelableException() {
                 given(tossPaymentsClient.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
-                        .willThrow(new TossRetryableException(TossErrorCode.PROVIDER_ERROR))
-                        .willThrow(new TossRetryableException(TossErrorCode.PROVIDER_ERROR))
-                        .willReturn(tossCancelResponse);
+                        .willThrow(new TossNotCancelablePaymentException());
 
-                // when
-                PaymentCancelResponse response = paymentGatewayAdapter.cancelPayment(PAYMENT_KEY, CANCEL_REASON);
-
-                // then: 성공 응답 반환, 총 3회 호출
-                assertThat(response).isNotNull();
-                assertThat(response.paymentKey()).isEqualTo(PAYMENT_KEY);
-                verify(tossPaymentsClient, times(3)).cancelPayment(PAYMENT_KEY, CANCEL_REASON);
+                assertThatThrownBy(() ->
+                        paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON)
+                ).isInstanceOf(GatewayNotCancelableException.class);
             }
 
             @Test
-            @DisplayName("예외 : 재시도 불가능한 예외는 즉시 전파")
-            void cancelPayment_ShouldNotRetryOnNonRetryableException() {
-                // given: RuntimeException은 재시도 대상이 아님
+            @DisplayName("예외 : API 키 오류(TossInvalidApiKeyException) -> ExternalApiException(PAYMENT_GATEWAY_CONFIG_ERROR) 변환")
+            void cancelPayment_ShouldMapInvalidApiKeyException() {
                 given(tossPaymentsClient.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
-                        .willThrow(new RuntimeException("Non-retryable error"));
+                        .willThrow(new TossInvalidApiKeyException());
 
-                // when & then: 예외 발생하며 1회만 호출됨
                 assertThatThrownBy(() ->
-                        paymentGatewayAdapter.cancelPayment(PAYMENT_KEY, CANCEL_REASON)
-                ).isInstanceOf(RuntimeException.class);
-
-                verify(tossPaymentsClient, times(1)).cancelPayment(PAYMENT_KEY, CANCEL_REASON);
+                        paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON)
+                ).isInstanceOf(ExternalApiException.class)
+                        .hasFieldOrPropertyWithValue("baseCode", PAYMENT_GATEWAY_CONFIG_ERROR);
             }
         }
     }
@@ -167,58 +167,79 @@ class TossPaymentsAdapterTest extends IntegrationTestSupport {
     class InquirePaymentByOrderIdTest {
 
         @Nested
-        @DisplayName("재시도 동작")
-        class RetryBehaviorTest {
+        @DisplayName("예외 변환 및 상태 매핑")
+        class MappingTest {
 
             @Test
-            @DisplayName("정상 : TossRetryableException 발생 시 최대 3회 재시도")
-            void inquire_ShouldRetryOnTossRetryableException() {
-                // given: 모든 호출에서 TossRetryableException 발생
+            @DisplayName("예외 : 결제 건 없음(TossPaymentNotFoundException) -> PaymentNotFoundException 변환")
+            void inquire_ShouldMapNotFoundException() {
                 given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID))
-                        .willThrow(new TossRetryableException(TossErrorCode.SERVICE_UNAVAILABLE));
+                        .willThrow(new TossPaymentNotFoundException());
 
-                // when & then: 예외 발생하며 3회 호출됨
                 assertThatThrownBy(() ->
-                        paymentGatewayAdapter.inquirePaymentByOrderId(ORDER_ID)
-                ).isInstanceOf(TossRetryableException.class);
-
-                verify(tossPaymentsClient, times(3)).inquirePaymentByOrderId(ORDER_ID);
+                        paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID)
+                ).isInstanceOf(PaymentNotFoundException.class);
             }
 
             @Test
-            @DisplayName("정상 : 2회 실패 후 3회차에 성공")
-            void inquire_ShouldSucceedOnThirdAttempt() {
-                // given: 2번 실패 후 3번째 성공
-                TossPaymentInquiryResponse successResponse = new TossPaymentInquiryResponse(
-                        "pk_test", ORDER_ID, "DONE", "카드", AMOUNT, OffsetDateTime.now()
-                );
-
+            @DisplayName("예외 : API 키 오류(TossInvalidApiKeyException) -> ExternalApiException(PAYMENT_GATEWAY_CONFIG_ERROR) 변환")
+            void inquire_ShouldMapInvalidApiKeyException() {
                 given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID))
-                        .willThrow(new TossRetryableException(TossErrorCode.PROVIDER_ERROR))
-                        .willThrow(new TossRetryableException(TossErrorCode.PROVIDER_ERROR))
-                        .willReturn(successResponse);
+                        .willThrow(new TossInvalidApiKeyException());
 
-                // when
-                TossPaymentInquiryResponse response = paymentGatewayAdapter.inquirePaymentByOrderId(ORDER_ID);
-
-                // then
-                assertThat(response).isEqualTo(successResponse);
-                verify(tossPaymentsClient, times(3)).inquirePaymentByOrderId(ORDER_ID);
+                assertThatThrownBy(() ->
+                        paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID)
+                ).isInstanceOf(ExternalApiException.class)
+                        .hasFieldOrPropertyWithValue("baseCode", PAYMENT_GATEWAY_CONFIG_ERROR);
             }
 
             @Test
-            @DisplayName("예외 : 재시도 불가능한 예외는 즉시 전파")
-            void inquire_ShouldNotRetryOnNonRetryableException() {
-                // given: RuntimeException은 재시도 대상이 아님
+            @DisplayName("상태 : DONE -> GatewayPaymentStatus.DONE 매핑 확인")
+            void inquire_ShouldMapDoneStatus() {
+                TossInquiryResponse response = TossResponseFixture.createInquiryResponse(PAYMENT_KEY, ORDER_ID, "DONE");
+                given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID)).willReturn(response);
+
+                PaymentInquiryResult result = paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID);
+                assertThat(result.status()).isEqualTo(GatewayPaymentStatus.DONE);
+            }
+
+            @Test
+            @DisplayName("상태 : CANCELED/ABORTED/EXPIRED -> GatewayPaymentStatus.CANCELED 매핑")
+            void inquire_ShouldMapCanceledStatuses() {
+                String[] statuses = {"CANCELED", "ABORTED", "EXPIRED"};
+                for (String status : statuses) {
+                    TossInquiryResponse response = TossResponseFixture.createInquiryResponse(PAYMENT_KEY, ORDER_ID, status);
+                    given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID)).willReturn(response);
+
+                    PaymentInquiryResult result = paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID);
+                    assertThat(result.status()).isEqualTo(GatewayPaymentStatus.CANCELED);
+                }
+            }
+
+            @Test
+            @DisplayName("상태 : READY/IN_PROGRESS/WAITING_FOR_DEPOSIT -> GatewayPaymentStatus 해당 상태 매핑")
+            void inquire_ShouldMapInProgressStatuses() {
                 given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID))
-                        .willThrow(new RuntimeException("Non-retryable error"));
+                        .willReturn(TossResponseFixture.createInquiryResponse(PAYMENT_KEY, ORDER_ID, "READY"));
+                assertThat(paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID).status()).isEqualTo(GatewayPaymentStatus.READY);
 
-                // when & then: 예외 발생하며 1회만 호출됨
-                assertThatThrownBy(() ->
-                        paymentGatewayAdapter.inquirePaymentByOrderId(ORDER_ID)
-                ).isInstanceOf(RuntimeException.class);
+                given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID))
+                        .willReturn(TossResponseFixture.createInquiryResponse(PAYMENT_KEY, ORDER_ID, "IN_PROGRESS"));
+                assertThat(paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID).status()).isEqualTo(GatewayPaymentStatus.IN_PROGRESS);
 
-                verify(tossPaymentsClient, times(1)).inquirePaymentByOrderId(ORDER_ID);
+                given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID))
+                        .willReturn(TossResponseFixture.createInquiryResponse(PAYMENT_KEY, ORDER_ID, "WAITING_FOR_DEPOSIT"));
+                assertThat(paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID).status()).isEqualTo(GatewayPaymentStatus.IN_PROGRESS);
+            }
+
+            @Test
+            @DisplayName("상태 : 알 수 없는 상태 -> GatewayPaymentStatus.UNKNOWN 매핑")
+            void inquire_ShouldMapUnknownStatus() {
+                TossInquiryResponse response = TossResponseFixture.createInquiryResponse(PAYMENT_KEY, ORDER_ID, "SOME_NEW_STATUS");
+                given(tossPaymentsClient.inquirePaymentByOrderId(ORDER_ID)).willReturn(response);
+
+                PaymentInquiryResult result = paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID);
+                assertThat(result.status()).isEqualTo(GatewayPaymentStatus.UNKNOWN);
             }
         }
     }
