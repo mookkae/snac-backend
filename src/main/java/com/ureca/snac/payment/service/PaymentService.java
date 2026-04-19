@@ -21,12 +21,12 @@ public interface PaymentService {
     /**
      * 결제 취소 기능
      *
-     * @param paymentKey 취소할 결제 ID
+     * @param paymentKey 취소할 결제 키 (Toss 발급)
      * @param reason     취소 사유
-     * @param email      취소요청한 사람
+     * @param memberId   취소 요청자 ID
      * @return 결제 취소의 상세 정보 PaymentCancelResponse DTO
      */
-    PaymentCancelResponse cancelPayment(String paymentKey, String reason, String email);
+    PaymentCancelResponse cancelPayment(String paymentKey, String reason, Long memberId);
 
     /**
      * Payment를 CANCELED 상태로 변경
@@ -38,10 +38,10 @@ public interface PaymentService {
      * 결제 확정 전 검증
      * MoneyService에서 외부 API 호출 전 검증 용도 별도 메서드로 분리
      *
-     * @param orderId 주문 ID
-     * @param amount  결제 금액
-     * @param member  결제 요청자
+     * @param orderId  주문 ID
+     * @param amount   결제 금액
+     * @param memberId 결제 요청자 ID
      * @return 검증된 Payment 엔티티
      */
-    Payment findAndValidateForConfirmation(String orderId, Long amount, Member member);
+    Payment findAndValidateForConfirmation(String orderId, Long amount, Long memberId);
 }
