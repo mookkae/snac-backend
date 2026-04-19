@@ -6,7 +6,7 @@ import java.time.OffsetDateTime;
 import java.util.Set;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record TossPaymentInquiryResponse(
+public record TossInquiryResponse(
         String paymentKey,
         String orderId,
         String status,
