@@ -1,28 +1,31 @@
 package com.ureca.snac.payment.service;
 
 import com.ureca.snac.asset.service.AssetRecorder;
+import com.ureca.snac.common.metric.TransactionAwareMetricRecorder;
 import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentMethod;
 import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
 import com.ureca.snac.payment.event.alert.CompensationFailureEvent;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.support.fixture.PaymentFixture;
+import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.service.WalletService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 
@@ -30,8 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.verify;
+import static org.mockito.BDDMockito.*;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -58,9 +60,6 @@ class PaymentInternalServiceUnitTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
-    @Mock
-    private MemberRepository memberRepository;
-
     private Member member;
     private Payment payment;
     private PaymentCancelResponse cancelResponse;
@@ -73,7 +72,8 @@ class PaymentInternalServiceUnitTest {
         meterRegistry = new SimpleMeterRegistry();
         paymentInternalService = new PaymentInternalService(
                 paymentRepository, walletService, assetRecorder,
-                eventPublisher, memberRepository, meterRegistry
+                eventPublisher, new TransactionAwareMetricRecorder(meterRegistry),
+                Clock.systemDefaultZone()
         );
         member = MemberFixture.createMember(1L);
         payment = PaymentFixture.builder()
@@ -87,33 +87,61 @@ class PaymentInternalServiceUnitTest {
                 PAYMENT_KEY,
                 AMOUNT,
                 OffsetDateTime.now(),
-                "테스트 취소"
+                "테스트 취소",
+                false
         );
     }
 
     @Nested
-    @DisplayName("markAsCancelRequested 메서드")
-    class MarkAsCancelRequestedTest {
+    @DisplayName("prepareForCancellation 메서드")
+    class PrepareForCancellationTest {
 
         @Test
-        @DisplayName("성공 : SUCCESS → CANCEL_REQUESTED 전환")
-        void markAsCancelRequested_HappyPath() {
+        @DisplayName("성공 : SUCCESS -> CANCEL_REQUESTED 전환 + freezeMoney 호출")
+        void prepareForCancellation_HappyPath() {
             // given
             Payment successPayment = PaymentFixture.builder()
                     .id(1L)
                     .member(member)
                     .amount(AMOUNT)
                     .status(PaymentStatus.SUCCESS)
+                    .method(PaymentMethod.CARD)
+                    .paidAt(OffsetDateTime.now())
                     .paymentKey(PAYMENT_KEY)
                     .build();
 
             given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(successPayment));
+            given(walletService.freezeMoney(member.getId(), AMOUNT)).willReturn(0L);
 
             // when
-            paymentInternalService.markAsCancelRequested(1L);
+            paymentInternalService.prepareForCancellation(1L);
 
             // then
             assertThat(successPayment.getStatus()).isEqualTo(PaymentStatus.CANCEL_REQUESTED);
+            verify(walletService, times(1)).freezeMoney(member.getId(), AMOUNT);
+        }
+
+        @Test
+        @DisplayName("실패 : freezeMoney 실패 시 예외 전파 (@Transactional 롤백으로 Payment 상태 보존)")
+        void prepareForCancellation_FreezeFails_PropagatesException() {
+            // given
+            Payment successPayment = PaymentFixture.builder()
+                    .id(1L)
+                    .member(member)
+                    .amount(AMOUNT)
+                    .status(PaymentStatus.SUCCESS)
+                    .method(PaymentMethod.CARD)
+                    .paidAt(OffsetDateTime.now())
+                    .paymentKey(PAYMENT_KEY)
+                    .build();
+
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(successPayment));
+            given(walletService.freezeMoney(member.getId(), AMOUNT))
+                    .willThrow(InsufficientBalanceException.class);
+
+            // when, then: 예외 전파 -> @Transactional 롤백으로 requestCancellation() 효과 취소됨
+            assertThatThrownBy(() -> paymentInternalService.prepareForCancellation(1L))
+                    .isInstanceOf(InsufficientBalanceException.class);
         }
     }
 
@@ -122,7 +150,7 @@ class PaymentInternalServiceUnitTest {
     class CompleteCancellationForReconciliationTest {
 
         @Test
-        @DisplayName("성공 : CANCEL_REQUESTED → CANCELED + Wallet 회수 + AssetHistory 기록")
+        @DisplayName("성공 : CANCEL_REQUESTED -> CANCELED + deductFrozenMoney + AssetHistory 기록")
         void completeCancellationForReconciliation_HappyPath() {
             // given
             Payment cancelRequestedPayment = PaymentFixture.builder()
@@ -134,20 +162,21 @@ class PaymentInternalServiceUnitTest {
                     .build();
 
             given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(cancelRequestedPayment));
-            given(walletService.withdrawMoney(member.getId(), AMOUNT)).willReturn(5000L);
+            given(walletService.deductFrozenMoney(member.getId(), AMOUNT)).willReturn(0L);
 
             // when
             paymentInternalService.completeCancellationForReconciliation(1L, "대사 취소");
 
             // then
             assertThat(cancelRequestedPayment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
-            verify(walletService, times(1)).withdrawMoney(member.getId(), AMOUNT);
+            verify(walletService, times(1)).deductFrozenMoney(member.getId(), AMOUNT);
+            verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
             verify(assetRecorder, times(1)).recordMoneyRechargeCancel(
-                    member.getId(), 1L, AMOUNT, 5000L);
+                    member.getId(), 1L, AMOUNT, 0L);
         }
 
         @Test
-        @DisplayName("멱등성 : 이미 CANCELED → Wallet 미호출, 조기 반환")
+        @DisplayName("멱등성 : 이미 CANCELED -> Wallet 미호출, 조기 반환")
         void completeCancellationForReconciliation_AlreadyCanceled_Skips() {
             // given
             Payment canceledPayment = PaymentFixture.builder()
@@ -164,6 +193,7 @@ class PaymentInternalServiceUnitTest {
             paymentInternalService.completeCancellationForReconciliation(1L, "대사 취소");
 
             // then
+            verify(walletService, never()).deductFrozenMoney(anyLong(), anyLong());
             verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
             verify(assetRecorder, never()).recordMoneyRechargeCancel(anyLong(), anyLong(), anyLong(), anyLong());
         }
@@ -174,23 +204,49 @@ class PaymentInternalServiceUnitTest {
     class CompensateCancellationFailureTest {
 
         @Test
-        @DisplayName("보상 처리 실패 시 CompensationFailureEvent 발행")
-        void compensateCancellationFailure_WhenFails_ShouldPublishEvent() {
-            // given: Payment 조회 시 예외 발생하도록 설정
+        @DisplayName("성공 : Payment 상태 변경 없이 PaymentCancelCompensationEvent만 발행")
+        void compensateCancellationFailure_ShouldOnlyPublishEvent_WithoutChangingPaymentStatus() {
+            // given
             Exception originalError = new RuntimeException("Original DB Error");
-            given(paymentRepository.findById(anyLong()))
-                    .willThrow(new RuntimeException("Compensation DB Error"));
 
             // when
             paymentInternalService.compensateCancellationFailure(
-                    payment, member, cancelResponse, originalError);
+                    payment, member.getId(), cancelResponse, originalError);
 
-            // then: CompensationFailureEvent 발행 확인
-            ArgumentCaptor<CompensationFailureEvent> eventCaptor =
-                    ArgumentCaptor.forClass(CompensationFailureEvent.class);
+            // then: PaymentCancelCompensationEvent만 발행 (Payment 상태 변경 없음)
+            ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
             verify(eventPublisher, times(1)).publishEvent(eventCaptor.capture());
+            assertThat(eventCaptor.getValue()).isInstanceOf(PaymentCancelCompensationEvent.class);
+            assertThat(eventCaptor.getValue()).isNotInstanceOf(CompensationFailureEvent.class);
 
-            CompensationFailureEvent capturedEvent = eventCaptor.getValue();
+            // then: Payment 상태 변경 없음 — CANCEL_REQUESTED 유지로 대사 스케줄러 시야 내 보장
+            verify(paymentRepository, never()).save(any(Payment.class));
+
+            // 메트릭 검증
+            assertThat(meterRegistry.get("payment_compensation_triggered_total")
+                    .counter().count()).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("실패 : Outbox 저장 실패 시 CompensationFailureEvent 발행")
+        void compensateCancellationFailure_WhenOutboxFails_ShouldPublishFailureEvent() {
+            // given: Outbox 저장(eventPublisher) 실패 시뮬레이션
+            Exception originalError = new RuntimeException("Original DB Error");
+            willThrow(new RuntimeException("Compensation DB Error"))
+                    .given(eventPublisher).publishEvent(any(PaymentCancelCompensationEvent.class));
+
+            // when
+            paymentInternalService.compensateCancellationFailure(
+                    payment, member.getId(), cancelResponse, originalError);
+
+            // then: publishEvent 총 2회 (PaymentCancelCompensationEvent 1회 + CompensationFailureEvent 1회)
+            ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+            verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+
+            CompensationFailureEvent capturedEvent = eventCaptor.getAllValues().stream()
+                    .filter(e -> e instanceof CompensationFailureEvent)
+                    .map(e -> (CompensationFailureEvent) e)
+                    .findFirst().orElseThrow();
             assertThat(capturedEvent.paymentId()).isEqualTo(payment.getId());
             assertThat(capturedEvent.memberId()).isEqualTo(member.getId());
             assertThat(capturedEvent.amount()).isEqualTo(AMOUNT);
@@ -199,30 +255,6 @@ class PaymentInternalServiceUnitTest {
             assertThat(capturedEvent.cancelReason()).isEqualTo(cancelResponse.reason());
             assertThat(capturedEvent.originalErrorMessage()).isEqualTo("Original DB Error");
             assertThat(capturedEvent.compensationErrorMessage()).isEqualTo("Compensation DB Error");
-
-            // 메트릭 검증
-            assertThat(meterRegistry.get("payment_compensation_triggered_total")
-                    .counter().count()).isEqualTo(1.0);
-        }
-
-        @Test
-        @DisplayName("보상 처리 성공 시 CompensationFailureEvent 미발행")
-        void compensateCancellationFailure_WhenSucceeds_ShouldNotPublishFailureEvent() {
-            // given: 정상 처리되도록 설정
-            Exception originalError = new RuntimeException("Original DB Error");
-            given(paymentRepository.findById(anyLong())).willReturn(Optional.of(payment));
-            given(paymentRepository.save(any(Payment.class))).willReturn(payment);
-
-            // when
-            paymentInternalService.compensateCancellationFailure(
-                    payment, member, cancelResponse, originalError);
-
-            // then: CompensationFailureEvent 미발행, PaymentCancelCompensationEvent만 발행
-            ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-            verify(eventPublisher, times(1)).publishEvent(eventCaptor.capture());
-
-            Object capturedEvent = eventCaptor.getValue();
-            assertThat(capturedEvent).isNotInstanceOf(CompensationFailureEvent.class);
         }
     }
 
@@ -231,28 +263,29 @@ class PaymentInternalServiceUnitTest {
     class ProcessCancellationInDBTest {
 
         @Test
-        @DisplayName("성공 : Payment CANCELED + walletService.withdrawMoney + assetRecorder 호출")
+        @DisplayName("성공 : Payment CANCELED + deductFrozenMoney + assetRecorder 호출 (withdrawMoney 미호출)")
         void processCancellationInDB_HappyPath() {
             // given
-            Payment successPayment = PaymentFixture.builder()
+            Payment cancelRequestedPayment = PaymentFixture.builder()
                     .id(1L)
                     .member(member)
                     .amount(AMOUNT)
-                    .status(PaymentStatus.SUCCESS)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
                     .paymentKey(PAYMENT_KEY)
                     .build();
 
-            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(successPayment));
-            given(walletService.withdrawMoney(member.getId(), AMOUNT)).willReturn(5000L);
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(cancelRequestedPayment));
+            given(walletService.deductFrozenMoney(member.getId(), AMOUNT)).willReturn(0L);
 
             // when
-            paymentInternalService.processCancellationInDB(successPayment, member, cancelResponse);
+            paymentInternalService.processCancellationInDB(cancelRequestedPayment.getId(), cancelResponse);
 
             // then
-            assertThat(successPayment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
-            verify(walletService, times(1)).withdrawMoney(member.getId(), AMOUNT);
+            assertThat(cancelRequestedPayment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+            verify(walletService, times(1)).deductFrozenMoney(member.getId(), AMOUNT);
+            verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
             verify(assetRecorder, times(1)).recordMoneyRechargeCancel(
-                    member.getId(), 1L, AMOUNT, 5000L);
+                    member.getId(), 1L, AMOUNT, 0L);
         }
 
         @Test
@@ -270,9 +303,10 @@ class PaymentInternalServiceUnitTest {
             given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(canceledPayment));
 
             // when
-            paymentInternalService.processCancellationInDB(canceledPayment, member, cancelResponse);
+            paymentInternalService.processCancellationInDB(canceledPayment.getId(), cancelResponse);
 
             // then
+            verify(walletService, never()).deductFrozenMoney(anyLong(), anyLong());
             verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
             verify(assetRecorder, never()).recordMoneyRechargeCancel(anyLong(), anyLong(), anyLong(), anyLong());
         }
@@ -285,7 +319,7 @@ class PaymentInternalServiceUnitTest {
 
             // when, then
             assertThatThrownBy(() ->
-                    paymentInternalService.processCancellationInDB(payment, member, cancelResponse)
+                    paymentInternalService.processCancellationInDB(payment.getId(), cancelResponse)
             ).isInstanceOf(com.ureca.snac.payment.exception.PaymentNotFoundException.class);
         }
     }
@@ -295,37 +329,10 @@ class PaymentInternalServiceUnitTest {
     class ProcessCompensationTest {
 
         @Test
-        @DisplayName("멱등성 : 이미 보상 완료된 Payment -> withdrawMoney 호출 안 함")
-        void processCompensation_AlreadyCompleted_SkipsWithdraw() {
-            // given: compensationCompleted = true인 Payment
-            Payment completedPayment = PaymentFixture.builder()
-                    .id(1L)
-                    .member(member)
-                    .amount(AMOUNT)
-                    .status(PaymentStatus.CANCELED)
-                    .paymentKey(PAYMENT_KEY)
-                    .build();
-            completedPayment.markCompensationCompleted();
-
-            given(paymentRepository.findByIdForUpdate(1L))
-                    .willReturn(Optional.of(completedPayment));
-
-            PaymentCancelCompensationEvent event = new PaymentCancelCompensationEvent(
-                    1L, member.getId(), AMOUNT, "보상 처리", OffsetDateTime.now()
-            );
-
-            // when
-            paymentInternalService.processCompensation(event);
-
-            // then: withdrawMoney 호출 안 함
-            verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
-            verify(assetRecorder, never()).recordMoneyRechargeCancel(anyLong(), anyLong(), anyLong(), anyLong());
-        }
-
-        @Test
-        @DisplayName("성공 : Payment 조회 + withdrawMoney + recordMoneyRechargeCancel + markCompensationCompleted")
-        void processCompensation_HappyPath() {
-            // given
+        @DisplayName("멱등성 : 이미 CANCELED -> deductFrozenMoney 미호출, 조기 반환")
+        void processCompensation_AlreadyCanceled_SkipsDeductFrozen() {
+            // given: 대사 스케줄러 또는 이전 보상으로 이미 CANCELED된 Payment
+            // compensationCompleted 플래그 제거 — status == CANCELED 기반 멱등성
             Payment canceledPayment = PaymentFixture.builder()
                     .id(1L)
                     .member(member)
@@ -334,9 +341,8 @@ class PaymentInternalServiceUnitTest {
                     .paymentKey(PAYMENT_KEY)
                     .build();
 
-            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(canceledPayment));
-            given(memberRepository.findById(member.getId())).willReturn(Optional.of(member));
-            given(walletService.withdrawMoney(member.getId(), AMOUNT)).willReturn(5000L);
+            given(paymentRepository.findByIdForUpdate(1L))
+                    .willReturn(Optional.of(canceledPayment));
 
             PaymentCancelCompensationEvent event = new PaymentCancelCompensationEvent(
                     1L, member.getId(), AMOUNT, "보상 처리", OffsetDateTime.now()
@@ -345,11 +351,40 @@ class PaymentInternalServiceUnitTest {
             // when
             paymentInternalService.processCompensation(event);
 
-            // then
-            verify(walletService, times(1)).withdrawMoney(member.getId(), AMOUNT);
+            // then: deductFrozenMoney 미호출
+            verify(walletService, never()).deductFrozenMoney(anyLong(), anyLong());
+            verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
+            verify(assetRecorder, never()).recordMoneyRechargeCancel(anyLong(), anyLong(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("성공 : CANCEL_REQUESTED -> CANCELED + deductFrozenMoney + recordMoneyRechargeCancel")
+        void processCompensation_HappyPath() {
+            // given: compensateCancellationFailure가 상태를 바꾸지 않으므로 CANCEL_REQUESTED
+            Payment cancelRequestedPayment = PaymentFixture.builder()
+                    .id(1L)
+                    .member(member)
+                    .amount(AMOUNT)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .paymentKey(PAYMENT_KEY)
+                    .build();
+
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(cancelRequestedPayment));
+            given(walletService.deductFrozenMoney(member.getId(), AMOUNT)).willReturn(0L);
+
+            PaymentCancelCompensationEvent event = new PaymentCancelCompensationEvent(
+                    1L, member.getId(), AMOUNT, "보상 처리", OffsetDateTime.now()
+            );
+
+            // when
+            paymentInternalService.processCompensation(event);
+
+            // then: CANCEL_REQUESTED -> CANCELED 전환
+            assertThat(cancelRequestedPayment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+            verify(walletService, times(1)).deductFrozenMoney(member.getId(), AMOUNT);
+            verify(walletService, never()).withdrawMoney(anyLong(), anyLong());
             verify(assetRecorder, times(1)).recordMoneyRechargeCancel(
-                    member.getId(), 1L, AMOUNT, 5000L);
-            assertThat(canceledPayment.isCompensationCompleted()).isTrue();
+                    member.getId(), 1L, AMOUNT, 0L);
         }
 
         @Test
@@ -367,28 +402,54 @@ class PaymentInternalServiceUnitTest {
                     .isInstanceOf(com.ureca.snac.payment.exception.PaymentNotFoundException.class);
         }
 
+    }
+
+    @Nested
+    @DisplayName("cancelPendingPayment 메서드")
+    class CancelPendingPaymentTest {
+
         @Test
-        @DisplayName("실패 : Member 없음 -> MemberNotFoundException")
-        void processCompensation_MemberNotFound_ThrowsException() {
+        @DisplayName("PENDING 상태 결제 -> 취소 성공, true 반환")
+        void shouldCancelPendingPayment() {
             // given
-            Payment canceledPayment = PaymentFixture.builder()
-                    .id(1L)
-                    .member(member)
-                    .amount(AMOUNT)
-                    .status(PaymentStatus.CANCELED)
-                    .paymentKey(PAYMENT_KEY)
-                    .build();
+            Payment pendingPayment = PaymentFixture.builder()
+                    .id(1L).member(member).status(PaymentStatus.PENDING).build();
 
-            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(canceledPayment));
-            given(memberRepository.findById(member.getId())).willReturn(Optional.empty());
+            given(paymentRepository.findByIdForUpdate(1L)).willReturn(Optional.of(pendingPayment));
 
-            PaymentCancelCompensationEvent event = new PaymentCancelCompensationEvent(
-                    1L, member.getId(), AMOUNT, "보상 처리", OffsetDateTime.now()
-            );
+            // when
+            boolean result = paymentInternalService.cancelPendingPayment(1L, "대사: 자동 취소");
 
-            // when, then
-            assertThatThrownBy(() -> paymentInternalService.processCompensation(event))
-                    .isInstanceOf(com.ureca.snac.member.exception.MemberNotFoundException.class);
+            // then
+            assertThat(result).isTrue();
+            assertThat(pendingPayment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+            verify(walletService, never()).deductFrozenMoney(anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("PENDING 아닌 상태 -> no-op, false 반환")
+        void shouldReturnFalseForNonPendingPayment() {
+            // given
+            Payment successPayment = PaymentFixture.builder()
+                    .id(2L).member(member).status(PaymentStatus.SUCCESS).build();
+
+            given(paymentRepository.findByIdForUpdate(2L)).willReturn(Optional.of(successPayment));
+
+            // when
+            boolean result = paymentInternalService.cancelPendingPayment(2L, "대사: 자동 취소");
+
+            // then
+            assertThat(result).isFalse();
+            assertThat(successPayment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 Payment -> PaymentNotFoundException")
+        void shouldThrowWhenPaymentNotFound() {
+            given(paymentRepository.findByIdForUpdate(999L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> paymentInternalService.cancelPendingPayment(999L, "대사: 자동 취소"))
+                    .isInstanceOf(com.ureca.snac.payment.exception.PaymentNotFoundException.class);
         }
     }
 }

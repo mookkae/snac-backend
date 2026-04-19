@@ -2,7 +2,7 @@ package com.ureca.snac.integration;
 
 import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.TransactionCategory;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -10,6 +10,7 @@ import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.entity.MoneyRecharge;
 import com.ureca.snac.money.service.MoneyService;
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
 import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.payment.service.PaymentService;
@@ -28,6 +29,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.fail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -51,7 +54,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     private PaymentInternalService paymentInternalService;
 
     @MockitoBean
-    private PaymentGatewayAdapter paymentGatewayAdapter;
+    private PaymentGatewayPort paymentGatewayPort;
 
     private Member member;
 
@@ -82,7 +85,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
             runConcurrently(() -> {
                 try {
                     moneyService.processRechargeSuccess(
-                            paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+                            paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();
@@ -120,7 +123,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
 
             runConcurrently(() -> {
                 try {
-                    paymentService.cancelPayment(paymentKey, "동시 취소 테스트", member.getEmail());
+                    paymentService.cancelPayment(paymentKey, "동시 취소 테스트", member.getId());
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();
@@ -150,11 +153,13 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
             String paymentKey = "conc_comp_pk_" + System.currentTimeMillis();
             MoneyRechargePreparedResponse prepared = prepareRecharge();
             mockTossConfirm(paymentKey);
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
 
+            // 실제 취소 흐름 재현: prepareForCancellation (CANCEL_REQUESTED + frozen)
+            // processCompensation N건이 경쟁 → 1건만 CANCELED 전환, 나머지 early return
+            paymentInternalService.prepareForCancellation(
+                    paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow().getId());
             Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
-            payment.cancel("보상 테스트용 취소");
-            paymentRepository.saveAndFlush(payment);
 
             PaymentCancelCompensationEvent event = new PaymentCancelCompensationEvent(
                     payment.getId(), member.getId(), RECHARGE_AMOUNT, "보상 테스트", OffsetDateTime.now());
@@ -172,9 +177,9 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
                 }
             }, THREAD_COUNT);
 
-            // then: compensationCompleted = true
+            // then: CANCELED 상태로 전환
             Payment result = paymentRepository.findById(payment.getId()).orElseThrow();
-            assertThat(result.isCompensationCompleted()).isTrue();
+            assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
 
             // AssetHistory CANCEL 1건만
             List<AssetHistory> cancelHistories = assetHistoryRepository.findAll().stream()
@@ -207,7 +212,10 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
         for (Future<?> future : futures) {
             try {
                 future.get(30, TimeUnit.SECONDS);
-            } catch (ExecutionException | TimeoutException ignored) {
+            } catch (ExecutionException ignored) {
+                // 태스크 내부에서 이미 success/failCount로 처리됨
+            } catch (TimeoutException e) {
+                fail("동시성 태스크가 30초 내 완료되지 않음: " + e.getMessage());
             }
         }
 
@@ -216,22 +224,22 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     }
 
     private MoneyRechargePreparedResponse prepareRecharge() {
-        return moneyService.prepareRecharge(new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+        return moneyService.prepareRecharge(new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
     }
 
     private void prepareAndCompleteRecharge(String paymentKey) {
         MoneyRechargePreparedResponse prepared = prepareRecharge();
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
     }
 
     private void mockTossConfirm(String paymentKey) {
-        given(paymentGatewayAdapter.confirmPayment(anyString(), anyString(), anyLong()))
-                .willReturn(TossResponseFixture.createConfirmResponse(paymentKey));
+        given(paymentGatewayPort.confirmPayment(anyString(), anyString(), anyLong()))
+                .willReturn(TossResponseFixture.createConfirmResult(paymentKey));
     }
 
     private void mockTossCancel(String paymentKey) {
-        given(paymentGatewayAdapter.cancelPayment(anyString(), anyString()))
-                .willReturn(PaymentCancelResponseFixture.create(paymentKey, RECHARGE_AMOUNT, "동시 취소 테스트"));
+        given(paymentGatewayPort.cancelPayment(anyString(), anyString()))
+                .willReturn(new com.ureca.snac.payment.port.out.dto.PaymentCancelResult(paymentKey, RECHARGE_AMOUNT, java.time.OffsetDateTime.now(), "동시 취소 테스트"));
     }
 }

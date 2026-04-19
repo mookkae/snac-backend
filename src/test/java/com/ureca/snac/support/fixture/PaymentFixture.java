@@ -24,6 +24,7 @@ public class PaymentFixture {
 
     public static Payment createSuccessPayment(Member member) {
         return builder()
+                .id(1L)
                 .member(member)
                 .status(PaymentStatus.SUCCESS)
                 .method(PaymentMethod.CARD)

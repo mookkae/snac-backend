@@ -8,6 +8,6 @@ import java.time.OffsetDateTime;
 public class PaymentCancelResponseFixture {
 
     public static PaymentCancelResponse create(String paymentKey, Long amount, String reason) {
-        return new PaymentCancelResponse(paymentKey, amount, OffsetDateTime.now(), reason);
+        return new PaymentCancelResponse(paymentKey, amount, OffsetDateTime.now(), reason, false);
     }
 }
