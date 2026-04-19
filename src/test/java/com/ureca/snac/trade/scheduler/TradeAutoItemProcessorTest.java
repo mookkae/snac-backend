@@ -88,7 +88,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
-                given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+                given(walletService.cancelCompositeEscrow(anyLong(), anyLong(), anyLong()))
                         .willThrow(new TransientDataAccessException("DB timeout") {
                         });
 
@@ -96,7 +96,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 tradeAutoItemProcessor.processRefund(trade);
 
                 // then
-                verify(walletService, times(3)).releaseCompositeEscrow(anyLong(), anyLong(), anyLong());
+                verify(walletService, times(3)).cancelCompositeEscrow(anyLong(), anyLong(), anyLong());
                 verify(tradeAlertService, times(1)).alertAutoRefundFailure(anyLong(), any());
             }
 
@@ -108,7 +108,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
-                given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+                given(walletService.cancelCompositeEscrow(anyLong(), anyLong(), anyLong()))
                         .willThrow(new TransientDataAccessException("DB timeout") {
                         })
                         .willThrow(new TransientDataAccessException("DB timeout") {
@@ -119,7 +119,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 tradeAutoItemProcessor.processRefund(trade);
 
                 // then
-                verify(walletService, times(3)).releaseCompositeEscrow(anyLong(), anyLong(), anyLong());
+                verify(walletService, times(3)).cancelCompositeEscrow(anyLong(), anyLong(), anyLong());
                 verify(tradeAlertService, never()).alertAutoRefundFailure(anyLong(), any());
             }
         }

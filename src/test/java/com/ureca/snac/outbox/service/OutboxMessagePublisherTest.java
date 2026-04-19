@@ -2,12 +2,12 @@ package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpException;
@@ -24,11 +24,15 @@ import static org.mockito.BDDMockito.doAnswer;
 @DisplayName("OutboxMessagePublisher 단위 테스트")
 class OutboxMessagePublisherTest {
 
-    @InjectMocks
     private OutboxMessagePublisher publisher;
 
     @Mock
     private RabbitTemplate rabbitTemplate;
+
+    @BeforeEach
+    void setUp() {
+        publisher = new OutboxMessagePublisher(rabbitTemplate);
+    }
 
     private static final String EVENT_ID = "test-event-id";
     private static final String AGGREGATE_TYPE = AggregateType.MEMBER.getTypeName();

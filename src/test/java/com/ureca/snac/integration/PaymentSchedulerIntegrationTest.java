@@ -1,7 +1,8 @@
 package com.ureca.snac.integration;
 
 import com.ureca.snac.common.exception.ExternalApiException;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -9,10 +10,11 @@ import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.service.MoneyService;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
-import com.ureca.snac.payment.exception.TossRetryableException;
+import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
 import com.ureca.snac.payment.scheduler.PaymentReconciliationScheduler;
-import com.ureca.snac.wallet.entity.Wallet;
+import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.support.IntegrationTestSupport;
+import com.ureca.snac.wallet.entity.Wallet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,8 +25,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.LocalDateTime;
 
-import static com.ureca.snac.common.BaseCode.TOSS_API_CALL_ERROR;
-import static com.ureca.snac.infra.TossErrorCode.TIMEOUT;
+import static com.ureca.snac.common.BaseCode.PAYMENT_GATEWAY_API_ERROR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -45,10 +46,13 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
     private MoneyService moneyService;
 
     @Autowired
+    private PaymentInternalService paymentInternalService;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
-    private PaymentGatewayAdapter paymentGatewayAdapter;
+    private PaymentGatewayPort paymentGatewayPort;
 
     private Member member;
 
@@ -67,10 +71,10 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
         @DisplayName("성공 : 미결 결제 없음 -> 동작 없음")
         void shouldDoNothingWhenNoStalePayments() {
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then
-            verify(paymentGatewayAdapter, never()).inquirePaymentByOrderId(anyString());
+            verify(paymentGatewayPort, never()).inquirePaymentByOrderId(anyString());
         }
 
         @Test
@@ -80,14 +84,14 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStalePendingPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willReturn(TossResponseFixture.createInquiryResponse("pk_done", orderId, "DONE"));
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResult("pk_done", orderId, "DONE"));
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then
-            verify(paymentGatewayAdapter).cancelPayment(eq("pk_done"), anyString());
+            verify(paymentGatewayPort).cancelPayment(eq("pk_done"), anyString());
 
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
@@ -100,14 +104,14 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStalePendingPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willReturn(TossResponseFixture.createInquiryResponse("pk_canceled", orderId, "CANCELED"));
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResult("pk_canceled", orderId, "CANCELED"));
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then: Toss cancel 미호출
-            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
+            verify(paymentGatewayPort, never()).cancelPayment(anyString(), anyString());
 
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
@@ -120,11 +124,11 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStalePendingPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willThrow(new ExternalApiException(TOSS_API_CALL_ERROR, "NOT_FOUND_PAYMENT"));
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willThrow(new com.ureca.snac.payment.exception.PaymentNotFoundException());
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
@@ -138,11 +142,11 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStalePendingPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willThrow(new TossRetryableException(TIMEOUT));
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willThrow(new GatewayTransientException(new RuntimeException("timeout")));
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
@@ -156,11 +160,11 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStalePendingPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willReturn(TossResponseFixture.createInquiryResponse("pk_progress", orderId, "IN_PROGRESS"));
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResult("pk_progress", orderId, "IN_PROGRESS"));
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
@@ -174,13 +178,13 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStalePendingPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willReturn(TossResponseFixture.createInquiryResponse("pk_already", orderId, "DONE"));
-            doThrow(new ExternalApiException(TOSS_API_CALL_ERROR, "ALREADY_CANCELED_PAYMENT"))
-                    .when(paymentGatewayAdapter).cancelPayment(eq("pk_already"), anyString());
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResult("pk_already", orderId, "DONE"));
+            doThrow(new AlreadyCanceledPaymentException())
+                    .when(paymentGatewayPort).cancelPayment(eq("pk_already"), anyString());
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
@@ -193,9 +197,9 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             // given: 충전 완료 후 stale로 만들기 (SUCCESS 상태라 Processor가 false 반환)
             String paymentKey = "pk_idem_" + System.currentTimeMillis();
             MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                    new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+                    new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
             mockTossConfirm(paymentKey);
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
 
             // Payment를 다시 PENDING으로 변경해서 스케줄러가 잡게 만들지 않음
             // 대신 createdAt을 과거로 -> 하지만 이미 SUCCESS라 Processor가 false 반환 확인
@@ -204,9 +208,9 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
 
             // stale로 만들어도 findStalePendingPayments는 PENDING 상태만 조회하므로 잡히지 않음
             // -> 결국 inquire 미호출
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
-            verify(paymentGatewayAdapter, never()).inquirePaymentByOrderId(anyString());
+            verify(paymentGatewayPort, never()).inquirePaymentByOrderId(anyString());
         }
     }
 
@@ -221,22 +225,21 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStaleCancelRequestedPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willReturn(TossResponseFixture.createInquiryResponse("pk_cr_done", orderId, "DONE"));
-
-            Long balanceBefore = getWalletMoneyBalance(member.getId());
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResult("pk_cr_done", orderId, "DONE"));
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then: payment.getPaymentKey() (DB에 저장된 키)로 취소 호출
-            verify(paymentGatewayAdapter).cancelPayment(eq(stalePayment.getPaymentKey()), anyString());
+            verify(paymentGatewayPort).cancelPayment(eq(stalePayment.getPaymentKey()), anyString());
 
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
 
-            Long balanceAfter = getWalletMoneyBalance(member.getId());
-            assertThat(balanceAfter).isEqualTo(balanceBefore - RECHARGE_AMOUNT);
+            // freeze 선행 후 deductFrozenMoney -> balance=0
+            Wallet wallet = walletRepository.findByMemberId(member.getId()).orElseThrow();
+            assertThat(wallet.getMoneyBalance()).isZero();
         }
 
         @Test
@@ -246,54 +249,51 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             Payment stalePayment = createStaleCancelRequestedPayment();
             String orderId = stalePayment.getOrderId();
 
-            given(paymentGatewayAdapter.inquirePaymentByOrderId(orderId))
-                    .willReturn(TossResponseFixture.createInquiryResponse("pk_cr_canceled", orderId, "CANCELED"));
-
-            Long balanceBefore = getWalletMoneyBalance(member.getId());
+            given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
+                    .willReturn(TossResponseFixture.createInquiryResult("pk_cr_canceled", orderId, "CANCELED"));
 
             // when
-            scheduler.reconcileStalePendingPayments();
+            scheduler.reconcileStalePayments();
 
             // then: Toss cancel 미호출
-            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
+            verify(paymentGatewayPort, never()).cancelPayment(anyString(), anyString());
 
             Payment result = paymentRepository.findById(stalePayment.getId()).orElseThrow();
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.CANCELED);
 
-            Long balanceAfter = getWalletMoneyBalance(member.getId());
-            assertThat(balanceAfter).isEqualTo(balanceBefore - RECHARGE_AMOUNT);
+            // freeze 선행 후 deductFrozenMoney -> balance=0
+            Wallet wallet = walletRepository.findByMemberId(member.getId()).orElseThrow();
+            assertThat(wallet.getMoneyBalance()).isZero();
         }
     }
 
     // ================= Helper ====================
 
     private Payment createStaleCancelRequestedPayment() {
-        // 충전 완료 (SUCCESS 상태) → CANCEL_REQUESTED로 변경
+        // 충전 완료 (SUCCESS 상태) -> CANCEL_REQUESTED + 머니 동결 (실제 취소 흐름 재현)
         String paymentKey = "pk_cr_" + System.currentTimeMillis();
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
 
         Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
 
-        // CANCEL_REQUESTED로 변경 + updatedAt을 과거로
+        // prepareForCancellation: CANCEL_REQUESTED + freezeMoney (실제 취소 흐름과 동일하게)
+        paymentInternalService.prepareForCancellation(payment.getId());
+
+        // updatedAt을 과거로 설정 (스케줄러가 stale로 인식하도록)
         jdbcTemplate.update(
-                "UPDATE payment SET status = 'CANCEL_REQUESTED', updated_at = ? WHERE payment_id = ?",
+                "UPDATE payment SET updated_at = ? WHERE payment_id = ?",
                 LocalDateTime.now().minusMinutes(30), payment.getId());
 
         return paymentRepository.findById(payment.getId()).orElseThrow();
     }
 
-    private Long getWalletMoneyBalance(Long memberId) {
-        Wallet wallet = walletRepository.findByMemberId(memberId).orElseThrow();
-        return wallet.getMoneyBalance();
-    }
-
     private Payment createStalePendingPayment() {
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
 
         Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
 
@@ -311,7 +311,7 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
     }
 
     private void mockTossConfirm(String paymentKey) {
-        given(paymentGatewayAdapter.confirmPayment(anyString(), anyString(), anyLong()))
-                .willReturn(TossResponseFixture.createConfirmResponse(paymentKey));
+        given(paymentGatewayPort.confirmPayment(anyString(), anyString(), anyLong()))
+                .willReturn(TossResponseFixture.createConfirmResult(paymentKey));
     }
 }

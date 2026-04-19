@@ -21,7 +21,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -35,13 +34,12 @@ import static org.mockito.Mockito.*;
  * TradeCancelServiceImpl 단위 테스트
  *
  * @Retryable 미적용 서비스이므로 순수 Mockito 단위 테스트 사용.
- * 에스크로 환불 메서드(releaseCompositeEscrow) 호출 검증에 집중.
+ * 에스크로 환불 메서드(cancelCompositeEscrow) 호출 검증에 집중.
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("TradeCancelServiceImpl 단위 테스트")
 class TradeCancelServiceImplTest {
 
-    @InjectMocks
     private TradeCancelServiceImpl tradeCancelService;
 
     @Mock
@@ -68,6 +66,8 @@ class TradeCancelServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        tradeCancelService = new TradeCancelServiceImpl(
+                cancelRepo, cardRepo, tradeRepo, memberRepo, penaltyService, walletService, assetRecorder);
         buyer = MemberFixture.createMember(1L);
         seller = MemberFixture.createMember(2L);
     }
@@ -77,20 +77,20 @@ class TradeCancelServiceImplTest {
     class RefundToBuyerAndPublishEventTest {
 
         @Test
-        @DisplayName("정상 : 머니만 사용한 거래 취소 시 releaseCompositeEscrow(money, 0) 호출")
-        void refund_moneyOnly_shouldCallReleaseCompositeEscrow() {
+        @DisplayName("정상 : 머니만 사용한 거래 취소 시 cancelCompositeEscrow(money, 0) 호출")
+        void refund_moneyOnly_shouldCallCancelCompositeEscrow() {
             // given
             Trade trade = TradeFixture.createPaymentConfirmedTrade(TRADE_ID, buyer, seller, CARD_ID, PRICE);
             Card card = CardFixture.createTradingCard(CARD_ID, seller, PRICE);
 
-            given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+            given(walletService.cancelCompositeEscrow(anyLong(), anyLong(), anyLong()))
                     .willReturn(new CompositeBalanceResult(PRICE, 0L, 0L, 0L));
 
             // when
             tradeCancelService.refundBuyerEscrow(trade, card, buyer);
 
             // then
-            verify(walletService, times(1)).releaseCompositeEscrow(buyer.getId(), PRICE, 0L);
+            verify(walletService, times(1)).cancelCompositeEscrow(buyer.getId(), PRICE, 0L);
             verify(assetRecorder, times(1)).recordTradeCancelRefund(
                     eq(buyer.getId()), eq(TRADE_ID), anyString(), eq(AssetType.MONEY), eq((long) PRICE), eq((long) PRICE));
             verify(assetRecorder, never()).recordTradeCancelRefund(
@@ -98,20 +98,20 @@ class TradeCancelServiceImplTest {
         }
 
         @Test
-        @DisplayName("정상 : 포인트만 사용한 거래 취소 시 releaseCompositeEscrow(0, point) 호출")
-        void refund_pointOnly_shouldCallReleaseCompositeEscrow() {
+        @DisplayName("정상 : 포인트만 사용한 거래 취소 시 cancelCompositeEscrow(0, point) 호출")
+        void refund_pointOnly_shouldCallCancelCompositeEscrow() {
             // given: priceGb=5000, point=5000 → moneyToRefund=0, pointToRefund=5000
             Trade trade = TradeFixture.createPaymentConfirmedTradeWithPoint(TRADE_ID, buyer, seller, CARD_ID, 5000, 5000);
             Card card = CardFixture.createTradingCard(CARD_ID, seller, 5000);
 
-            given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+            given(walletService.cancelCompositeEscrow(anyLong(), anyLong(), anyLong()))
                     .willReturn(new CompositeBalanceResult(0L, 0L, 5000L, 0L));
 
             // when
             tradeCancelService.refundBuyerEscrow(trade, card, buyer);
 
             // then
-            verify(walletService, times(1)).releaseCompositeEscrow(buyer.getId(), 0L, 5000L);
+            verify(walletService, times(1)).cancelCompositeEscrow(buyer.getId(), 0L, 5000L);
             verify(assetRecorder, never()).recordTradeCancelRefund(
                     anyLong(), anyLong(), anyString(), eq(AssetType.MONEY), anyLong(), anyLong());
             verify(assetRecorder, times(1)).recordTradeCancelRefund(
@@ -119,20 +119,20 @@ class TradeCancelServiceImplTest {
         }
 
         @Test
-        @DisplayName("정상 : 복합 결제(머니+포인트) 취소 시 releaseCompositeEscrow(money, point) 호출")
-        void refund_composite_shouldCallReleaseCompositeEscrow() {
+        @DisplayName("정상 : 복합 결제(머니+포인트) 취소 시 cancelCompositeEscrow(money, point) 호출")
+        void refund_composite_shouldCallCancelCompositeEscrow() {
             // given: priceGb=10000, point=3000 → moneyToRefund=7000, pointToRefund=3000
             Trade trade = TradeFixture.createPaymentConfirmedTradeWithPoint(TRADE_ID, buyer, seller, CARD_ID, 10000, 3000);
             Card card = CardFixture.createTradingCard(CARD_ID, seller, 10000);
 
-            given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+            given(walletService.cancelCompositeEscrow(anyLong(), anyLong(), anyLong()))
                     .willReturn(new CompositeBalanceResult(7000L, 0L, 3000L, 0L));
 
             // when
             tradeCancelService.refundBuyerEscrow(trade, card, buyer);
 
             // then
-            verify(walletService, times(1)).releaseCompositeEscrow(buyer.getId(), 7000L, 3000L);
+            verify(walletService, times(1)).cancelCompositeEscrow(buyer.getId(), 7000L, 3000L);
             verify(assetRecorder, times(1)).recordTradeCancelRefund(
                     eq(buyer.getId()), eq(TRADE_ID), anyString(), eq(AssetType.MONEY), eq(7000L), eq(7000L));
             verify(assetRecorder, times(1)).recordTradeCancelRefund(
@@ -146,7 +146,7 @@ class TradeCancelServiceImplTest {
 
         @Test
         @DisplayName("정상 : PAYMENT_CONFIRMED 상태 취소 시 에스크로 환불 호출")
-        void cancelRealTimeTrade_whenPaymentConfirmed_shouldReleaseEscrow() {
+        void cancelRealTimeTrade_whenPaymentConfirmed_shouldCancelEscrow() {
             // given
             Trade trade = TradeFixture.createPaymentConfirmedTrade(TRADE_ID, buyer, seller, CARD_ID, PRICE);
             Card card = CardFixture.createTradingCard(CARD_ID, seller, PRICE);
@@ -154,19 +154,19 @@ class TradeCancelServiceImplTest {
             given(memberRepo.findByEmail(anyString())).willReturn(Optional.of(buyer));
             given(tradeRepo.findLockedById(anyLong())).willReturn(Optional.of(trade));
             given(cardRepo.findLockedById(anyLong())).willReturn(Optional.of(card));
-            given(walletService.releaseCompositeEscrow(anyLong(), anyLong(), anyLong()))
+            given(walletService.cancelCompositeEscrow(anyLong(), anyLong(), anyLong()))
                     .willReturn(new CompositeBalanceResult((long) PRICE, 0L, 0L, 0L));
 
             // when
             tradeCancelService.cancelRealTimeTrade(TRADE_ID, buyer.getEmail(), CancelReason.BUYER_CHANGE_MIND);
 
             // then
-            verify(walletService, times(1)).releaseCompositeEscrow(buyer.getId(), (long) PRICE, 0L);
+            verify(walletService, times(1)).cancelCompositeEscrow(buyer.getId(), (long) PRICE, 0L);
         }
 
         @Test
         @DisplayName("정상 : ACCEPTED 상태(결제 전) 취소 시 에스크로 환불 미호출")
-        void cancelRealTimeTrade_whenAccepted_shouldNotReleaseEscrow() {
+        void cancelRealTimeTrade_whenAccepted_shouldNotCancelEscrow() {
             // given
             Trade trade = TradeFixture.createAcceptedTradeWithSeller(TRADE_ID, buyer, seller, CARD_ID, PRICE);
             Card card = CardFixture.createTradingCard(CARD_ID, seller, PRICE);
@@ -179,7 +179,7 @@ class TradeCancelServiceImplTest {
             tradeCancelService.cancelRealTimeTrade(TRADE_ID, buyer.getEmail(), com.ureca.snac.trade.entity.CancelReason.BUYER_CHANGE_MIND);
 
             // then: 결제 전 상태이므로 에스크로 환불 없음
-            verify(walletService, never()).releaseCompositeEscrow(anyLong(), anyLong(), anyLong());
+            verify(walletService, never()).cancelCompositeEscrow(anyLong(), anyLong(), anyLong());
         }
     }
 }

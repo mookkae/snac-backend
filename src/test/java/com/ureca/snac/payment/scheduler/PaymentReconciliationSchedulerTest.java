@@ -1,33 +1,24 @@
 package com.ureca.snac.payment.scheduler;
 
-import com.ureca.snac.common.exception.ExternalApiException;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
-import com.ureca.snac.infra.TossErrorCode;
-import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
-import com.ureca.snac.payment.exception.TossRetryableException;
 import com.ureca.snac.payment.repository.PaymentRepository;
-import com.ureca.snac.payment.service.PaymentAlertService;
-import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.support.fixture.PaymentFixture;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 
-import java.time.OffsetDateTime;
+import java.time.Clock;
 import java.util.List;
 
-import static com.ureca.snac.common.BaseCode.TOSS_API_CALL_ERROR;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
 
@@ -41,16 +32,7 @@ class PaymentReconciliationSchedulerTest {
     private PaymentRepository paymentRepository;
 
     @Mock
-    private PaymentGatewayAdapter paymentGatewayAdapter;
-
-    @Mock
-    private PaymentReconciliationProcessor processor;
-
-    @Mock
-    private PaymentInternalService paymentInternalService;
-
-    @Mock
-    private PaymentAlertService paymentAlertService;
+    private PaymentReconciliationOrchestrator orchestrator;
 
     private final Member member = MemberFixture.createMember(1L);
 
@@ -58,410 +40,52 @@ class PaymentReconciliationSchedulerTest {
     void setUp() {
         scheduler = new PaymentReconciliationScheduler(
                 paymentRepository,
-                paymentGatewayAdapter,
-                processor,
-                paymentInternalService,
-                paymentAlertService,
-                new SimpleMeterRegistry(),
+                orchestrator,
                 10,  // staleThresholdMinutes
-                50   // batchSize
+                50,  // batchSize
+                Clock.systemDefaultZone()
         );
     }
 
-    @Nested
-    @DisplayName("reconcileStalePendingPayments 메서드")
-    class ReconcileStalePendingPaymentsTest {
+    @Test
+    @DisplayName("미결 결제 없음 -> 서비스 호출 없이 조기 종료")
+    void shouldEarlyExitWhenNoStalePayments() {
+        given(paymentRepository.findStalePayments(any(), any(), eq(PageRequest.of(0, 50))))
+                .willReturn(List.of());
 
-        @Test
-        @DisplayName("미결 결제 없음 -> 조기 종료")
-        void shouldEarlyExitWhenNoStalePayments() {
-            // given
-            given(paymentRepository.findStalePayments(
-                    any(), any(), eq(PageRequest.of(0, 50))))
-                    .willReturn(List.of());
+        scheduler.reconcileStalePayments();
 
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verifyNoInteractions(paymentGatewayAdapter, processor, paymentAlertService);
-        }
-
-        @Test
-        @DisplayName("토스 DONE 상태 -> 토스 취소 + 로컬 취소 + 알림")
-        void shouldCancelDonePaymentOnToss() {
-            // given
-            Payment payment = createStalePendingPayment(1L, "order_1");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_done_1", "order_1", "DONE", "카드", 10000L, OffsetDateTime.now());
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_1"))
-                    .willReturn(tossResponse);
-            given(processor.cancelPayment(eq(1L), anyString())).willReturn(true);
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentGatewayAdapter).cancelPayment(eq("pk_done_1"), anyString());
-            verify(processor).cancelPayment(eq(1L), anyString());
-            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_done_1");
-        }
-
-        @Test
-        @DisplayName("토스 DONE -> 토스 취소 성공 -> 로컬 취소 실패 -> critical 알림")
-        void shouldAlertCriticalWhenLocalCancelFails() {
-            // given
-            Payment payment = createStalePendingPayment(2L, "order_2");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_done_2", "order_2", "DONE", "카드", 10000L, OffsetDateTime.now());
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_2"))
-                    .willReturn(tossResponse);
-            given(processor.cancelPayment(eq(2L), anyString()))
-                    .willThrow(new RuntimeException("DB connection lost"));
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentGatewayAdapter).cancelPayment(eq("pk_done_2"), anyString());
-            verify(paymentAlertService).alertReconciliationCancelFailed(
-                    eq(payment), eq("pk_done_2"), eq("DB connection lost"));
-        }
-
-        @Test
-        @DisplayName("토스 CANCELED/ABORTED 상태 -> 로컬만 취소")
-        void shouldCancelLocallyForCanceledTossPayment() {
-            // given
-            Payment payment = createStalePendingPayment(3L, "order_3");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_3", "order_3", "CANCELED", "카드", 10000L, null);
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_3"))
-                    .willReturn(tossResponse);
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(processor).cancelPayment(eq(3L), contains("CANCELED"));
-            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
-        }
-
-        @Test
-        @DisplayName("토스 조회 일시적 오류(TossRetryableException) -> 스킵")
-        void shouldSkipOnRetryableException() {
-            // given
-            Payment payment = createStalePendingPayment(4L, "order_4");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_4"))
-                    .willThrow(new TossRetryableException(TossErrorCode.TIMEOUT));
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verifyNoInteractions(processor, paymentAlertService);
-        }
-
-        @Test
-        @DisplayName("토스 조회 NOT_FOUND -> 로컬만 취소")
-        void shouldCancelLocallyWhenTossNotFound() {
-            // given
-            Payment payment = createStalePendingPayment(5L, "order_5");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_5"))
-                    .willThrow(new ExternalApiException(TOSS_API_CALL_ERROR, "NOT_FOUND_PAYMENT"));
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(processor).cancelPayment(eq(5L), contains("토스 결제 기록 없음"));
-            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
-        }
-
-        @Test
-        @DisplayName("토스 DONE -> 토스 취소 시 ALREADY_CANCELED 예외 -> 로컬 취소 진행")
-        void shouldCancelLocallyWhenTossAlreadyCanceled() {
-            // given
-            Payment payment = createStalePendingPayment(6L, "order_6");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_done_6", "order_6", "DONE", "카드", 10000L, OffsetDateTime.now());
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_6"))
-                    .willReturn(tossResponse);
-            doThrow(new ExternalApiException(TOSS_API_CALL_ERROR, "ALREADY_CANCELED_PAYMENT"))
-                    .when(paymentGatewayAdapter).cancelPayment(eq("pk_done_6"), anyString());
-            given(processor.cancelPayment(eq(6L), anyString())).willReturn(true);
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(processor).cancelPayment(eq(6L), anyString());
-            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_done_6");
-        }
-
-        @Test
-        @DisplayName("토스 DONE -> 토스 취소 TossRetryableException -> PENDING 유지 (스킵)")
-        void shouldSkipWhenTossCancelRetryable() {
-            // given
-            Payment payment = createStalePendingPayment(8L, "order_8");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_done_8", "order_8", "DONE", "카드", 10000L, OffsetDateTime.now());
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_8"))
-                    .willReturn(tossResponse);
-            doThrow(new TossRetryableException(TossErrorCode.TIMEOUT))
-                    .when(paymentGatewayAdapter).cancelPayment(eq("pk_done_8"), anyString());
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verifyNoInteractions(processor, paymentAlertService);
-        }
-
-        @Test
-        @DisplayName("토스 진행 중 상태(WAITING_FOR_DEPOSIT) -> 스킵")
-        void shouldSkipInProgressTossPayment() {
-            // given
-            Payment payment = createStalePendingPayment(7L, "order_7");
-
-            given(paymentRepository.findStalePayments(
-                    any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_7", "order_7", "WAITING_FOR_DEPOSIT", "가상계좌", 10000L, null);
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_7"))
-                    .willReturn(tossResponse);
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verifyNoInteractions(processor, paymentAlertService);
-        }
+        verifyNoInteractions(orchestrator);
     }
 
-    @Nested
-    @DisplayName("CANCEL_REQUESTED 대사 처리")
-    class ReconcileCancelRequestedTest {
+    @Test
+    @DisplayName("미결 결제 N건 -> reconcile N회 호출")
+    void shouldDelegateEachPaymentToService() {
+        Payment p1 = PaymentFixture.builder().id(1L).member(member).status(PaymentStatus.PENDING).build();
+        Payment p2 = PaymentFixture.builder().id(2L).member(member).status(PaymentStatus.CANCEL_REQUESTED).build();
 
-        @Test
-        @DisplayName("CANCEL_REQUESTED + Toss DONE → Toss 취소 + completeCancellationForReconciliation")
-        void shouldCompleteCancellationForCancelRequestedWithTossDone() {
-            // given
-            Payment payment = createCancelRequestedPayment(10L, "order_10", "pk_10");
+        given(paymentRepository.findStalePayments(any(), any(), any()))
+                .willReturn(List.of(p1, p2));
 
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
+        scheduler.reconcileStalePayments();
 
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_10", "order_10", "DONE", "카드", 10000L, OffsetDateTime.now());
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_10"))
-                    .willReturn(tossResponse);
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentGatewayAdapter).cancelPayment(eq("pk_10"), anyString());
-            verify(paymentInternalService).completeCancellationForReconciliation(eq(10L), anyString());
-            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_10");
-            // PENDING 전용 processor는 호출하지 않음
-            verifyNoInteractions(processor);
-        }
-
-        @Test
-        @DisplayName("CANCEL_REQUESTED + Toss CANCELED → Toss 취소 스킵 + completeCancellationForReconciliation")
-        void shouldCompleteCancellationForCancelRequestedWithTossCanceled() {
-            // given
-            Payment payment = createCancelRequestedPayment(11L, "order_11", "pk_11");
-
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_11", "order_11", "CANCELED", "카드", 10000L, null);
-
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_11"))
-                    .willReturn(tossResponse);
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
-            verify(paymentInternalService).completeCancellationForReconciliation(eq(11L), anyString());
-            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_11");
-            verifyNoInteractions(processor);
-        }
-
-        @Test
-        @DisplayName("CANCEL_REQUESTED + Toss 조회 TossRetryableException → 스킵")
-        void shouldSkipCancelRequestedOnRetryableInquiry() {
-            // given
-            Payment payment = createCancelRequestedPayment(12L, "order_12", "pk_12");
-
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_12"))
-                    .willThrow(new TossRetryableException(TossErrorCode.TIMEOUT));
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verifyNoInteractions(processor, paymentInternalService, paymentAlertService);
-        }
-
-        @Test
-        @DisplayName("CANCEL_REQUESTED + Toss 조회 ExternalApiException (기록 없음) → completeCancellation + 종료")
-        void shouldCompleteCancellationDirectlyWhenTossHasNoRecord() {
-            // given
-            Payment payment = createCancelRequestedPayment(13L, "order_13", "pk_13");
-
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_13"))
-                    .willThrow(new ExternalApiException(TOSS_API_CALL_ERROR, "NOT_FOUND_PAYMENT"));
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentInternalService).completeCancellationForReconciliation(eq(13L), anyString());
-            verify(paymentGatewayAdapter, never()).cancelPayment(anyString(), anyString());
-            verifyNoInteractions(processor, paymentAlertService);
-        }
-
-        @Test
-        @DisplayName("CANCEL_REQUESTED + DONE + cancelPayment TossRetryableException → 스킵")
-        void shouldSkipCancelRequestedWhenTossCancelRetryable() {
-            // given
-            Payment payment = createCancelRequestedPayment(14L, "order_14", "pk_14");
-
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_14", "order_14", "DONE", "카드", 10000L, OffsetDateTime.now());
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_14"))
-                    .willReturn(tossResponse);
-            doThrow(new TossRetryableException(TossErrorCode.TIMEOUT))
-                    .when(paymentGatewayAdapter).cancelPayment(eq("pk_14"), anyString());
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verifyNoInteractions(processor, paymentInternalService, paymentAlertService);
-        }
-
-        @Test
-        @DisplayName("CANCEL_REQUESTED + DONE + cancelPayment ExternalApiException → completeCancellation 진행")
-        void shouldCompleteCancellationWhenTossCancelAlreadyDone() {
-            // given
-            Payment payment = createCancelRequestedPayment(15L, "order_15", "pk_15");
-
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_15", "order_15", "DONE", "카드", 10000L, OffsetDateTime.now());
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_15"))
-                    .willReturn(tossResponse);
-            doThrow(new ExternalApiException(TOSS_API_CALL_ERROR, "ALREADY_CANCELED_PAYMENT"))
-                    .when(paymentGatewayAdapter).cancelPayment(eq("pk_15"), anyString());
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentInternalService).completeCancellationForReconciliation(eq(15L), anyString());
-            verify(paymentAlertService).alertReconciliationAutoCanceled(payment, "pk_15");
-        }
-
-        @Test
-        @DisplayName("CANCEL_REQUESTED + completeCancellation 실패 → alertReconciliationCancelFailed")
-        void shouldAlertCancelFailedWhenCompleteCancellationThrows() {
-            // given
-            Payment payment = createCancelRequestedPayment(16L, "order_16", "pk_16");
-
-            given(paymentRepository.findStalePayments(any(), any(), any()))
-                    .willReturn(List.of(payment));
-
-            TossPaymentInquiryResponse tossResponse = new TossPaymentInquiryResponse(
-                    "pk_16", "order_16", "CANCELED", "카드", 10000L, null);
-            given(paymentGatewayAdapter.inquirePaymentByOrderId("order_16"))
-                    .willReturn(tossResponse);
-            doThrow(new RuntimeException("DB error"))
-                    .when(paymentInternalService).completeCancellationForReconciliation(eq(16L), anyString());
-
-            // when
-            scheduler.reconcileStalePendingPayments();
-
-            // then
-            verify(paymentAlertService).alertReconciliationCancelFailed(
-                    eq(payment), eq("pk_16"), eq("DB error"));
-        }
+        verify(orchestrator).reconcile(p1);
+        verify(orchestrator).reconcile(p2);
     }
 
-    private Payment createStalePendingPayment(Long id, String orderId) {
-        return PaymentFixture.builder()
-                .id(id)
-                .member(member)
-                .orderId(orderId)
-                .status(PaymentStatus.PENDING)
-                .build();
-    }
+    @Test
+    @DisplayName("한 건 예외 발생 -> 나머지 건 계속 처리")
+    void shouldContinueOnExceptionPerPayment() {
+        Payment p1 = PaymentFixture.builder().id(1L).member(member).status(PaymentStatus.PENDING).build();
+        Payment p2 = PaymentFixture.builder().id(2L).member(member).status(PaymentStatus.PENDING).build();
 
-    private Payment createCancelRequestedPayment(Long id, String orderId, String paymentKey) {
-        return PaymentFixture.builder()
-                .id(id)
-                .member(member)
-                .orderId(orderId)
-                .paymentKey(paymentKey)
-                .status(PaymentStatus.CANCEL_REQUESTED)
-                .build();
+        given(paymentRepository.findStalePayments(any(), any(), any()))
+                .willReturn(List.of(p1, p2));
+        doThrow(new RuntimeException("DB error")).when(orchestrator).reconcile(p1);
+
+        scheduler.reconcileStalePayments();
+
+        verify(orchestrator).reconcile(p1);
+        verify(orchestrator).reconcile(p2);
     }
 }
