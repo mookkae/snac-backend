@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.config.RabbitMQQueue;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
 import com.ureca.snac.payment.service.PaymentInternalService;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,10 +61,9 @@ public class PaymentCancelCompensationListener {
             throw e;
 
         } finally {
-            Counter.builder("listener_message_processed_total")
-                    .tag("queue", RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE)
-                    .tag("result", result)
-                    .register(meterRegistry).increment();
+            meterRegistry.counter("listener_message_processed_total",
+                    "queue", RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE,
+                    "result", result).increment();
         }
     }
 
