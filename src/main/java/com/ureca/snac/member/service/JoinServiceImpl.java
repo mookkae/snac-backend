@@ -79,7 +79,7 @@ public class JoinServiceImpl implements JoinService {
         log.info("회원가입 완료됨! : 이메일 : {}, 이름 : {}", member.getEmail(), member.getName());
 
         // Outbox 적용
-        publishMemberJoinEvent(member);
+        publishMemberJoinEvent(member.getId());
     }
 
     /**
@@ -87,13 +87,13 @@ public class JoinServiceImpl implements JoinService {
      * OutboxEventListener가 자동으로 Outbox 테이블에 저장
      * Hybrid Push로 즉시 발행 또는 스케줄러가 처리
      */
-    private void publishMemberJoinEvent(Member member) {
-        log.info("[이벤트 발행] 회원가입 이벤트 발행. 회원 ID: {}", member.getId());
+    private void publishMemberJoinEvent(Long memberId) {
+        log.info("[이벤트 발행] 회원가입 이벤트 발행. 회원 ID: {}", memberId);
 
         eventPublisher.publishEvent(
-                new MemberJoinEvent(member.getId())
+                new MemberJoinEvent(memberId)
         );
 
-        log.info("[이벤트 발행] Outbox 저장 완료. 회원 ID: {}", member.getId());
+        log.info("[이벤트 발행] Outbox 저장 완료. 회원 ID: {}", memberId);
     }
 }

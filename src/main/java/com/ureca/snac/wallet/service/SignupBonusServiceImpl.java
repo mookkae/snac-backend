@@ -1,11 +1,7 @@
 package com.ureca.snac.wallet.service;
 
-import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.TransactionDetail;
-import com.ureca.snac.asset.repository.AssetHistoryRepository;
 import com.ureca.snac.asset.service.AssetRecorder;
-import com.ureca.snac.member.exception.MemberNotFoundException;
-import com.ureca.snac.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,12 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class SignupBonusServiceImpl implements SignupBonusService {
 
-    private final MemberRepository memberRepository;
     private final WalletService walletService;
-    private final AssetHistoryRepository assetHistoryRepository;
     private final AssetRecorder assetRecorder;
 
     @Override
@@ -31,26 +24,22 @@ public class SignupBonusServiceImpl implements SignupBonusService {
     public void grantSignupBonus(Long memberId) {
         log.info("[회원가입 포인트] 지급 시작. 회원 ID: {}", memberId);
 
-        // 1. 멱등성 체크 (포인트 지급 전 확인)
+        // 1. 1차 멱등성 체크: 대부분의 중복 요청을 DB 접근 없이 조기 차단
+        // 최종 멱등성은 AssetHistory.idempotency_key unique 제약이 보장한다.
+        // 그래서 멀티스레드로 진입하면 대기 중인 스레드가 여기서 걸러지고
         if (isAlreadyGranted(memberId)) {
             log.info("[회원가입 포인트] 이미 지급됨. 중복 방지. 회원 ID: {}", memberId);
             return;
         }
 
-        // 2. Member 존재 확인
-        if (!memberRepository.existsById(memberId)) {
-            log.error("[회원가입 포인트] 회원 조회 실패. 회원 ID: {}", memberId);
-            throw new MemberNotFoundException();
-        }
-
-        // 3. 포인트 지급
+        // 2. 포인트 지급
         long amount = TransactionDetail.SIGNUP_BONUS.getDefaultAmount();
-        Long balanceAfter = walletService.depositPoint(memberId, amount);
+        long balanceAfter = walletService.depositPoint(memberId, amount);
 
         log.info("[회원가입 포인트] 지급 완료. 회원 ID: {}, 금액: {}, 잔액: {}",
                 memberId, amount, balanceAfter);
 
-        // 4. AssetHistory 기록 (AssetRecorder에서 멱등성 처리)
+        // 3. AssetHistory 기록 (AssetRecorder에서 멱등성 처리)
         assetRecorder.recordSignupBonus(memberId, amount, balanceAfter);
 
         log.info("[회원가입 포인트] 내역 기록 완료. 회원 ID: {}", memberId);
@@ -58,7 +47,6 @@ public class SignupBonusServiceImpl implements SignupBonusService {
 
     // 회원가입 포인트 지급 여부 확인
     private boolean isAlreadyGranted(Long memberId) {
-        String idempotencyKey = AssetHistory.generateIdempotencyKey(TransactionDetail.SIGNUP_BONUS.name(), memberId);
-        return assetHistoryRepository.existsByIdempotencyKey(idempotencyKey);
+        return assetRecorder.hasSignupBonusRecord(memberId);
     }
 }
