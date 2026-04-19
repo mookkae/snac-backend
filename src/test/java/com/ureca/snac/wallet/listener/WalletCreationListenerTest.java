@@ -1,10 +1,9 @@
 package com.ureca.snac.wallet.listener;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ureca.snac.member.entity.Member;
-import com.ureca.snac.member.repository.MemberRepository;
+import com.ureca.snac.common.metric.TransactionAwareMetricRecorder;
+import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.support.fixture.EventFixture;
-import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.wallet.service.WalletService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,13 +13,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.dao.DataIntegrityViolationException;
 
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.BDDMockito.given;
+import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 /**
@@ -34,23 +31,18 @@ import static org.mockito.Mockito.*;
 class WalletCreationListenerTest {
 
     private WalletCreationListener walletCreationListener;
-    private SimpleMeterRegistry meterRegistry;
-
-    @Mock
-    private MemberRepository memberRepository;
 
     @Mock
     private WalletService walletService;
 
     @BeforeEach
     void setUp() {
-        meterRegistry = new SimpleMeterRegistry();
+        TransactionAwareMetricRecorder metricRecorder = new TransactionAwareMetricRecorder(new SimpleMeterRegistry());
         ObjectMapper objectMapper = new ObjectMapper();
         walletCreationListener = new WalletCreationListener(
-                memberRepository,
                 walletService,
                 objectMapper,
-                meterRegistry
+                metricRecorder
         );
     }
 
@@ -59,25 +51,13 @@ class WalletCreationListenerTest {
     void handleMemberJoinEvent_Success() {
         // given
         Long memberId = 1L;
-        Member member = MemberFixture.createMember(memberId);
         String payload = EventFixture.memberJoinEventJson(memberId);
-
-        given(memberRepository.findById(memberId))
-                .willReturn(Optional.of(member));
 
         // when
         walletCreationListener.handleMemberJoinEvent(payload);
 
         // then
-        verify(memberRepository, times(1))
-                .findById(memberId);
-
-        verify(walletService, times(1))
-                .createWallet(member);
-
-        // 메트릭 검증
-        assertThat(meterRegistry.get("listener_message_processed_total")
-                .tag("result", "success").counter().count()).isEqualTo(1.0);
+        verify(walletService).createWallet(memberId);
     }
 
     @Test
@@ -92,11 +72,7 @@ class WalletCreationListenerTest {
                 .hasMessageContaining("JSON 파싱 불가");
 
         // 서비스 호출 안 됨
-        verify(memberRepository, never())
-                .findById(anyLong());
-
-        verify(walletService, never())
-                .createWallet(any(Member.class));
+        verify(walletService, never()).createWallet(anyLong());
     }
 
     @Test
@@ -106,16 +82,14 @@ class WalletCreationListenerTest {
         Long memberId = 999L;
         String payload = EventFixture.memberJoinEventJson(memberId);
 
-        given(memberRepository.findById(memberId))
-                .willReturn(Optional.empty());
+        doThrow(new MemberNotFoundException())
+                .when(walletService)
+                .createWallet(memberId);
 
         // when , then
         assertThatThrownBy(() -> walletCreationListener.handleMemberJoinEvent(payload))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
                 .hasMessageContaining("회원 없음");
-
-        verify(walletService, never())
-                .createWallet(any(Member.class));
     }
 
     @Test
@@ -123,20 +97,31 @@ class WalletCreationListenerTest {
     void handleMemberJoinEvent_TransientFailure() {
         // given
         Long memberId = 1L;
-        Member member = MemberFixture.createMember(memberId);
         String payload = EventFixture.memberJoinEventJson(memberId);
 
-        given(memberRepository.findById(memberId))
-                .willReturn(Optional.of(member));
-
-        // 일시적 장애 (ex DB 커넥션 끊김)
         doThrow(new RuntimeException("DB 연결 실패"))
                 .when(walletService)
-                .createWallet(member);
+                .createWallet(memberId);
 
         // when , then: 예외 그대로 전파 (재시도)
         assertThatThrownBy(() -> walletCreationListener.handleMemberJoinEvent(payload))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("DB 연결 실패");
+    }
+
+    @Test
+    @DisplayName("동시성 중복 생성 -> 예외 삼키고 정상 완료 (ACK)")
+    void handleMemberJoinEvent_DuplicateWallet_SilentlyHandled() {
+        // given
+        Long memberId = 1L;
+        String payload = EventFixture.memberJoinEventJson(memberId);
+
+        doThrow(new DataIntegrityViolationException("uk_wallet_member_id"))
+                .when(walletService)
+                .createWallet(memberId);
+
+        // when & then: 예외 전파 없이 정상 완료 (ACK)
+        assertThatNoException()
+                .isThrownBy(() -> walletCreationListener.handleMemberJoinEvent(payload));
     }
 }

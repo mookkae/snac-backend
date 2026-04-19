@@ -294,6 +294,41 @@ class AssetRecorderTest {
     }
 
     @Nested
+    @DisplayName("hasSignupBonusRecord 메서드")
+    class HasSignupBonusRecordTest {
+
+        @Test
+        @DisplayName("성공 : 지급 내역 있으면 true 반환")
+        void hasSignupBonusRecord_alreadyGranted_returnsTrue() {
+            // given
+            String idempotencyKey = AssetHistory.generateIdempotencyKey(
+                    TransactionDetail.SIGNUP_BONUS.name(), member.getId());
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(true);
+
+            // when
+            boolean result = assetRecorder.hasSignupBonusRecord(member.getId());
+
+            // then
+            assertThat(result).isTrue();
+        }
+
+        @Test
+        @DisplayName("성공 : 지급 내역 없으면 false 반환")
+        void hasSignupBonusRecord_notGranted_returnsFalse() {
+            // given
+            String idempotencyKey = AssetHistory.generateIdempotencyKey(
+                    TransactionDetail.SIGNUP_BONUS.name(), member.getId());
+            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(false);
+
+            // when
+            boolean result = assetRecorder.hasSignupBonusRecord(member.getId());
+
+            // then
+            assertThat(result).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("공통 예외 처리")
     class CommonExceptionTest {
 
