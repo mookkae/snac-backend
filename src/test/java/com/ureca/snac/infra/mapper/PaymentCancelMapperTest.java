@@ -1,8 +1,8 @@
-package com.ureca.snac.payment.mapper;
+package com.ureca.snac.infra.mapper;
 
 import com.ureca.snac.common.exception.ExternalApiException;
 import com.ureca.snac.infra.dto.response.TossCancelResponse;
-import com.ureca.snac.payment.dto.PaymentCancelResponse;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +35,7 @@ class PaymentCancelMapperTest {
         TossCancelResponse response = new TossCancelResponse(PAYMENT_KEY, ORDER_ID, List.of(cancel));
 
         // when
-        PaymentCancelResponse result = mapper.toPaymentCancelResponse(response);
+        PaymentCancelResult result = mapper.toPaymentCancelResponse(response);
 
         // then
         assertThat(result.paymentKey()).isEqualTo(PAYMENT_KEY);
@@ -58,7 +58,7 @@ class PaymentCancelMapperTest {
         );
 
         // when
-        PaymentCancelResponse result = mapper.toPaymentCancelResponse(response);
+        PaymentCancelResult result = mapper.toPaymentCancelResponse(response);
 
         // then
         assertThat(result.canceledAmount()).isEqualTo(AMOUNT);

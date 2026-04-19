@@ -1,5 +1,6 @@
 package com.ureca.snac.infra;
 
+import com.ureca.snac.infra.exception.TossErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
