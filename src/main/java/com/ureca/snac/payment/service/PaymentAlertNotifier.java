@@ -4,25 +4,23 @@ import com.ureca.snac.common.notification.SlackNotifier;
 import com.ureca.snac.common.notification.dto.SlackAttachment;
 import com.ureca.snac.common.notification.dto.SlackField;
 import com.ureca.snac.common.notification.dto.SlackMessage;
-import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.event.alert.AutoCancelFailureEvent;
 import com.ureca.snac.payment.event.alert.CompensationFailureEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 /**
- * 결제 관련 알림 서비스
+ * 결제 관련 알림 컴포넌트
  * <p>
  * 결제 처리 중 발생하는 치명적인 상황에 대한 Slack 알림 담당
- * MoneyServiceImpl에서 알림 책임 분리
  */
 @Slf4j
-@Service
+@Component
 @RequiredArgsConstructor
-public class PaymentAlertService {
+public class PaymentAlertNotifier {
 
     private final SlackNotifier slackNotifier;
 
@@ -37,6 +35,8 @@ public class PaymentAlertService {
                 SlackField.longField("Cancel Error", event.cancelErrorMessage()),
                 SlackField.longField("조치",
                         """
+                                대사 스케줄러가 자동 복구를 시도합니다.
+                                스케줄러 복구 실패 알림 수신 시:
                                 1. Toss 관리자 콘솔에서 결제 상태 확인
                                 2. 수동 취소 또는 DB 동기화 결정
                                 3. Payment ID로 DB 상태 확인
@@ -50,10 +50,7 @@ public class PaymentAlertService {
         slackNotifier.sendAsync(message);
     }
 
-    /**
-     * Toss 취소 성공 후 DB 보상 처리마저 실패한 Critical 상황 잔액 불일치 발생 가능
-     * 결제 취소 보상 처리 실패 시 운영자 알림
-     */
+    // Toss 취소 성공 후 DB 보상 처리마저 실패한 Critical, 잔액 불일치 발생 가능
     public void alertCompensationFailure(CompensationFailureEvent event) {
         List<SlackField> fields = List.of(
                 SlackField.of("Payment ID", String.valueOf(event.paymentId())),
@@ -82,34 +79,54 @@ public class PaymentAlertService {
     }
 
     // 대사 스케줄러 자동 취소 성공 시 운영자 알림
-    public void alertReconciliationAutoCanceled(Payment payment, String paymentKey) {
+    public void alertReconciliationAutoCanceled(Long paymentId, String orderId, Long amount, String paymentKey) {
         List<SlackField> fields = List.of(
-                SlackField.of("Payment ID", String.valueOf(payment.getId())),
+                SlackField.of("Payment ID", String.valueOf(paymentId)),
                 SlackField.of("Payment Key", paymentKey),
-                SlackField.of("Order ID", payment.getOrderId()),
-                SlackField.of("Amount", payment.getAmount() + "원"),
+                SlackField.of("Order ID", orderId),
+                SlackField.of("Amount", amount + "원"),
                 SlackField.longField("조치", "자동 취소 완료. 추가 조치 불필요")
         );
         SlackAttachment attachment = SlackAttachment.warning(fields);
         SlackMessage message = SlackMessage.of("대사: 미결 결제 자동 취소 완료", attachment);
 
-        log.warn("[대사] 자동 취소 완료. paymentId: {}, orderId: {}", payment.getId(), payment.getOrderId());
+        log.warn("[대사] 자동 취소 완료. paymentId: {}, orderId: {}", paymentId, orderId);
         slackNotifier.sendAsync(message);
     }
 
-    /**
-     * 대사 스케줄러 자동 취소 실패 시 운영자 알림
-     *
-     * @param payment      취소 실패한 결제
-     * @param paymentKey   토스 결제 키
-     * @param errorMessage 에러 메시지
-     */
-    public void alertReconciliationCancelFailed(Payment payment, String paymentKey, String errorMessage) {
+    // Toss NOT_CANCELABLE_PAYMENT 확정 시 운영자 알림, frozen 해제 + Payment SUCCESS 복구 완료 후 호출
+    public void alertCancellationRejectedByGateway(Long paymentId, String orderId, Long amount,
+                                                String paymentKey, String source) {
         List<SlackField> fields = List.of(
-                SlackField.of("Payment ID", String.valueOf(payment.getId())),
+                SlackField.of("Payment ID", String.valueOf(paymentId)),
                 SlackField.of("Payment Key", paymentKey),
-                SlackField.of("Order ID", payment.getOrderId()),
-                SlackField.of("Amount", payment.getAmount() + "원"),
+                SlackField.of("Order ID", orderId),
+                SlackField.of("Amount", amount + "원"),
+                SlackField.of("발생 경로", source),
+                SlackField.longField("처리 결과", "frozen 해제 + Payment SUCCESS 복구 완료"),
+                SlackField.longField("조치",
+                        """
+                                1. Toss 관리자 콘솔에서 NOT_CANCELABLE 사유 확인
+                                2. 사용자에게 취소 불가 안내 필요
+                                3. 필요 시 수동 환불 절차 검토
+                                """)
+        );
+        SlackAttachment attachment = SlackAttachment.warning(fields);
+        SlackMessage message = SlackMessage.of("WARNING: Toss 취소 거절 - frozen 복구 완료", attachment);
+
+        log.warn("[취소 거절] Toss NOT_CANCELABLE. frozen 복구 완료. paymentId: {}, source: {}",
+                paymentId, source);
+        slackNotifier.sendAsync(message);
+    }
+
+    // 대사 스케줄러 자동 취소 실패 시 운영자 알림
+    public void alertReconciliationCancelFailed(Long paymentId, String orderId, Long amount,
+                                                String paymentKey, String errorMessage) {
+        List<SlackField> fields = List.of(
+                SlackField.of("Payment ID", String.valueOf(paymentId)),
+                SlackField.of("Payment Key", paymentKey),
+                SlackField.of("Order ID", orderId),
+                SlackField.of("Amount", amount + "원"),
                 SlackField.longField("Error", errorMessage),
                 SlackField.longField("조치",
                         """
@@ -122,7 +139,7 @@ public class PaymentAlertService {
         SlackMessage message = SlackMessage.of("CRITICAL: 대사 자동 취소 실패", attachment);
 
         log.error("[CRITICAL] 대사 자동 취소 실패! paymentId: {}, orderId: {}, error: {}",
-                payment.getId(), payment.getOrderId(), errorMessage);
+                paymentId, orderId, errorMessage);
         slackNotifier.sendAsync(message);
     }
 }
