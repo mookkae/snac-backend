@@ -225,7 +225,7 @@ public class TradeCancelServiceImpl implements TradeCancelService {
         int point = trade.getPointOrZero();
 
         CompositeBalanceResult result =
-                walletService.releaseCompositeEscrow(buyer.getId(), moneyToRefund, point);
+                walletService.cancelCompositeEscrow(buyer.getId(), moneyToRefund, point);
 
         if (moneyToRefund > 0) {
             String title = String.format("%s %dGB 거래 취소",
