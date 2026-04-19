@@ -3,7 +3,7 @@ package com.ureca.snac.infra;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ureca.snac.common.exception.ExternalApiException;
 import com.ureca.snac.infra.dto.response.TossErrorResponse;
-import com.ureca.snac.payment.exception.*;
+import com.ureca.snac.infra.exception.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -150,15 +150,27 @@ class TossPaymentsErrorHandlerTest {
         }
 
         @Test
-        @DisplayName("성공 : ALREADY_PROCESSED_PAYMENT -> PaymentAlreadySuccessException")
-        void handleError_AlreadyProcessed_ThrowsPaymentAlreadyProcessedException() throws Exception {
+        @DisplayName("성공 : ALREADY_PROCESSED_PAYMENT -> TossAlreadyProcessedPaymentException")
+        void handleError_AlreadyProcessed_ThrowsTossAlreadyProcessedPaymentException() throws Exception {
             ClientHttpResponse response = mockResponseWithBody(
                     HttpStatus.CONFLICT,
                     new TossErrorResponse("ALREADY_PROCESSED_PAYMENT", "이미 처리된 결제", null)
             );
 
             assertThatThrownBy(() -> errorHandler.handleError(TEST_URI, HttpMethod.POST, response))
-                    .isInstanceOf(PaymentAlreadySuccessException.class);
+                    .isInstanceOf(TossAlreadyProcessedPaymentException.class);
+        }
+
+        @Test
+        @DisplayName("성공 : NOT_CANCELABLE_PAYMENT -> TossNotCancelablePaymentException (infra 내부 예외)")
+        void handleError_NotCancelable_ThrowsTossNotCancelablePaymentException() throws Exception {
+            ClientHttpResponse response = mockResponseWithBody(
+                    HttpStatus.BAD_REQUEST,
+                    new TossErrorResponse("NOT_CANCELABLE_PAYMENT", "취소 불가 결제", null)
+            );
+
+            assertThatThrownBy(() -> errorHandler.handleError(TEST_URI, HttpMethod.POST, response))
+                    .isInstanceOf(TossNotCancelablePaymentException.class);
         }
 
         @Test
@@ -174,7 +186,7 @@ class TossPaymentsErrorHandlerTest {
         }
 
         @Test
-        @DisplayName("실패 : JSON 파싱 실패 -> TossPaymentsAPiCallException")
+        @DisplayName("실패 : JSON 파싱 실패 -> TossPaymentsApiCallException")
         void handleError_JsonParseFailure_ThrowsTossPaymentsApiCallException() throws Exception {
             ClientHttpResponse response = mockResponseWithRawBody(
                     HttpStatus.BAD_REQUEST,
@@ -182,7 +194,7 @@ class TossPaymentsErrorHandlerTest {
             );
 
             assertThatThrownBy(() -> errorHandler.handleError(TEST_URI, HttpMethod.POST, response))
-                    .isInstanceOf(TossPaymentsAPiCallException.class);
+                    .isInstanceOf(TossPaymentsApiCallException.class);
         }
     }
 

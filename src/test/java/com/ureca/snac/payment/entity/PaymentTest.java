@@ -1,6 +1,7 @@
 package com.ureca.snac.payment.entity;
 
 import com.ureca.snac.common.exception.BusinessException;
+import com.ureca.snac.common.exception.InternalServerException;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.payment.exception.*;
 import com.ureca.snac.support.fixture.MemberFixture;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,6 +112,21 @@ class PaymentTest {
             assertThatThrownBy(() ->
                     payment.complete("pk_test", PaymentMethod.CARD, OffsetDateTime.now())
             ).isInstanceOf(AlreadyCanceledPaymentException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCEL_REQUESTED 상태에서 complete 호출 -> PaymentCancellationInProgressException")
+        void complete_FromCancelRequested_ThrowsException() {
+            // given: 취소 진행 중인 결제 — complete 불가
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() ->
+                    payment.complete("pk_test", PaymentMethod.CARD, OffsetDateTime.now())
+            ).isInstanceOf(PaymentCancellationInProgressException.class);
         }
     }
 
@@ -220,20 +237,35 @@ class PaymentTest {
     }
 
     @Nested
-    @DisplayName("markCompensationCompleted 메서드")
-    class MarkCompensationCompletedTest {
+    @DisplayName("revertCancellation 메서드")
+    class RevertCancellationTest {
 
         @Test
-        @DisplayName("성공 : compensationCompleted = true 설정")
-        void markCompensationCompleted_SetsFlag() {
+        @DisplayName("성공 : CANCEL_REQUESTED -> SUCCESS 복구")
+        void revertCancellation_FromCancelRequested_TransitionsToSuccess() {
             // given
-            Payment payment = Payment.prepare(member, 10000L);
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .build();
 
             // when
-            payment.markCompensationCompleted();
+            payment.revertCancellation();
 
             // then
-            assertThat(payment.isCompensationCompleted()).isTrue();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCEL_REQUESTED가 아닌 상태에서 호출 -> InternalServerException (코드 버그)")
+        void revertCancellation_FromNonCancelRequested_ThrowsInternalServerException() {
+            // given: revertCancellation은 PG NOT_CANCELABLE_PAYMENT 전용 경로
+            // CANCEL_REQUESTED 이외 상태 진입은 호출 측 코드 버그이므로 500 예외
+            Payment payment = PaymentFixture.createSuccessPayment(member);
+
+            // when, then
+            assertThatThrownBy(() -> payment.revertCancellation())
+                    .isInstanceOf(InternalServerException.class);
         }
     }
 
@@ -248,7 +280,7 @@ class PaymentTest {
             Payment payment = Payment.prepare(member, 10000L);
 
             // when, then (예외 발생 안 함)
-            payment.validateForConfirmation(member, 10000L);
+            payment.validateForConfirmation(member.getId(), 10000L);
         }
 
         @Test
@@ -258,7 +290,7 @@ class PaymentTest {
             Payment payment = PaymentFixture.createSuccessPayment(member);
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForConfirmation(member, 10000L))
+            assertThatThrownBy(() -> payment.validateForConfirmation(member.getId(), 10000L))
                     .isInstanceOf(PaymentAlreadySuccessException.class);
         }
 
@@ -272,8 +304,22 @@ class PaymentTest {
                     .build();
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForConfirmation(member, 10000L))
+            assertThatThrownBy(() -> payment.validateForConfirmation(member.getId(), 10000L))
                     .isInstanceOf(AlreadyCanceledPaymentException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCEL_REQUESTED 상태 -> PaymentCancellationInProgressException")
+        void validateForConfirmation_CancelRequestedStatus_ThrowsException() {
+            // given: 취소 진행 중인 결제에 중복 확정 시도 — race condition 방어
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.validateForConfirmation(member.getId(), 10000L))
+                    .isInstanceOf(PaymentCancellationInProgressException.class);
         }
 
         @Test
@@ -284,7 +330,7 @@ class PaymentTest {
             Member otherMember = MemberFixture.createMember(999L);
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForConfirmation(otherMember, 10000L))
+            assertThatThrownBy(() -> payment.validateForConfirmation(otherMember.getId(), 10000L))
                     .isInstanceOf(PaymentOwnershipMismatchException.class);
         }
 
@@ -295,7 +341,7 @@ class PaymentTest {
             Payment payment = Payment.prepare(member, 10000L);
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForConfirmation(member, 5000L))
+            assertThatThrownBy(() -> payment.validateForConfirmation(member.getId(), 5000L))
                     .isInstanceOf(PaymentAmountMismatchException.class);
         }
     }
@@ -317,18 +363,63 @@ class PaymentTest {
                     .build();
 
             // when, then (예외 발생 안 함)
-            payment.validateForCancellation(member);
+            payment.validateForCancellation(member.getId(), Clock.systemDefaultZone());
         }
 
         @Test
-        @DisplayName("실패 : PENDING 상태")
+        @DisplayName("실패 : PENDING 상태 -> PaymentNotCancellableException")
         void validateForCancellation_PendingStatus_ThrowsException() {
             // given
             Payment payment = Payment.prepare(member, 10000L);
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForCancellation(member))
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
                     .isInstanceOf(PaymentNotCancellableException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCEL_REQUESTED 상태 -> PaymentCancellationInProgressException")
+        void validateForCancellation_CancelRequestedStatus_ThrowsException() {
+            // given: 이미 취소 진행 중 — 중복 취소 시도
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCEL_REQUESTED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
+                    .isInstanceOf(PaymentCancellationInProgressException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : CANCELED 상태 -> AlreadyCanceledPaymentException")
+        void validateForCancellation_CanceledStatus_ThrowsException() {
+            // given: 이미 취소 완료된 결제 — 중복 취소 시도
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.CANCELED)
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
+                    .isInstanceOf(AlreadyCanceledPaymentException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : UNKNOWN method -> PaymentMethodNotCancelableException")
+        void validateForCancellation_UnknownMethod_ThrowsMethodNotCancelableException() {
+            // given: Toss 미지원 결제수단 — 기간 만료(PaymentPeriodExpiredException)가 아닌 수단 불가로 응답해야 함
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.SUCCESS)
+                    .method(PaymentMethod.UNKNOWN)
+                    .paymentKey("pk_test")
+                    .paidAt(OffsetDateTime.now())
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
+                    .isInstanceOf(PaymentMethodNotCancelableException.class);
         }
 
         @Test
@@ -339,7 +430,7 @@ class PaymentTest {
             Member otherMember = MemberFixture.createMember(999L);
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForCancellation(otherMember))
+            assertThatThrownBy(() -> payment.validateForCancellation(otherMember.getId(), Clock.systemDefaultZone()))
                     .isInstanceOf(PaymentOwnershipMismatchException.class);
         }
 
@@ -356,7 +447,7 @@ class PaymentTest {
                     .build();
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForCancellation(member))
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
                     .isInstanceOf(PaymentPeriodExpiredException.class);
         }
 
@@ -372,9 +463,9 @@ class PaymentTest {
                     .paidAt(OffsetDateTime.now())
                     .build();
 
-            // when, then
-            assertThatThrownBy(() -> payment.validateForCancellation(member))
-                    .isInstanceOf(PaymentPeriodExpiredException.class);
+            // when, then: 결제 수단 취소 불가 → 기간 만료보다 먼저 검증
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
+                    .isInstanceOf(PaymentMethodNotCancelableException.class);
         }
 
         @Test
@@ -388,9 +479,9 @@ class PaymentTest {
                     .paidAt(OffsetDateTime.now())
                     .build();
 
-            // when, then
-            assertThatThrownBy(() -> payment.validateForCancellation(member))
-                    .isInstanceOf(PaymentPeriodExpiredException.class);
+            // when, then: method=null → isMethodCancelable() false → PaymentMethodNotCancelableException
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
+                    .isInstanceOf(PaymentMethodNotCancelableException.class);
         }
 
         @Test
@@ -405,7 +496,61 @@ class PaymentTest {
                     .build();
 
             // when, then
-            assertThatThrownBy(() -> payment.validateForCancellation(member))
+            assertThatThrownBy(() -> payment.validateForCancellation(member.getId(), Clock.systemDefaultZone()))
+                    .isInstanceOf(PaymentPeriodExpiredException.class);
+        }
+
+        @Test
+        @DisplayName("성공 : PHONE 결제 + 같은 월 -> 취소 가능")
+        void validateForCancellation_PhonePaymentSameMonth_NoException() {
+            // given: 이번 달 결제
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.SUCCESS)
+                    .method(PaymentMethod.PHONE)
+                    .paymentKey("pk_test")
+                    .paidAt(OffsetDateTime.now())
+                    .build();
+
+            // when, then (예외 발생 안 함)
+            payment.validateForCancellation(member.getId(), Clock.systemDefaultZone());
+        }
+    }
+
+    @Nested
+    @DisplayName("validateCancellationPeriodNotExpired 메서드")
+    class ValidateCancellationPeriodNotExpiredTest {
+
+        @Test
+        @DisplayName("성공 : CARD 결제 + paidAt 존재 -> 만료 아님, 예외 없음")
+        void validateCancellationPeriodNotExpired_CardPayment_NoException() {
+            // given
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.SUCCESS)
+                    .method(PaymentMethod.CARD)
+                    .paymentKey("pk_test")
+                    .paidAt(OffsetDateTime.now())
+                    .build();
+
+            // when, then
+            payment.validateCancellationPeriodNotExpired(Clock.systemDefaultZone());
+        }
+
+        @Test
+        @DisplayName("실패 : PHONE 결제 + 다른 월 -> 만료, PaymentPeriodExpiredException")
+        void validateCancellationPeriodNotExpired_PhonePaymentExpired_ThrowsException() {
+            // given
+            Payment payment = PaymentFixture.builder()
+                    .member(member)
+                    .status(PaymentStatus.SUCCESS)
+                    .method(PaymentMethod.PHONE)
+                    .paymentKey("pk_test")
+                    .paidAt(OffsetDateTime.now().minusMonths(2))
+                    .build();
+
+            // when, then
+            assertThatThrownBy(() -> payment.validateCancellationPeriodNotExpired(Clock.systemDefaultZone()))
                     .isInstanceOf(PaymentPeriodExpiredException.class);
         }
     }

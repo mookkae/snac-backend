@@ -2,100 +2,85 @@ package com.ureca.snac.wallet.entity;
 
 import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.InvalidAmountException;
-import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
-import lombok.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
- * 자산 잔액 및 에스크로 상태 관리
- * <p>
- * 머니/포인트의 입출금 에스크로 캡슐화
- * SRP : 잔액 관리와 에스크로 처리만 담당
- * <p>
- * 사용 가능 잔액과 에스크로 잔액 분리 관리
- * 에스크로 : 거래 중인 금액으로 사용 불가능하지만 소유권은 유지
+ * 머니/포인트의 잔액, 에스크로 보관액, 충전 취소시 동결 금액
+ * 에스크로: 거래 중인 금액으로 사용 불가능하지만 소유
+ * frozen : 충전 취소로 소비 불가하지만 취소 예약된 금액
+ * 머니 : 결제 취소 환불 절차 중 동결 (Toss 결과 확정 전까지 소비 불가)
+ * 포인트 : 현재 미사용. FDS(이상 거래 감지) 또는 회원 정지·탈퇴 시 자산 동결 용도 고려
  */
 
 @Embeddable
 @Getter
-@EqualsAndHashCode
-@ToString
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AssetBalance {
 
-    @Column(nullable = false)
     private Long balance;
 
-    @Column(nullable = false)
     private Long escrow;
 
-    // 팩토리 메소드 강제
-    private AssetBalance(Long balance, Long escrow) {
+    private Long frozen;
+
+    private AssetBalance(Long balance, Long escrow, Long frozen) {
         this.balance = balance;
         this.escrow = escrow;
+        this.frozen = frozen;
     }
 
     public static AssetBalance init() {
-        return new AssetBalance(0L, 0L);
+        return new AssetBalance(0L, 0L, 0L);
     }
 
-    public void deposit(long amount) {
+    public AssetBalance deposit(long amount) {
         validatePositiveAmount(amount);
-        this.balance += amount;
+        return new AssetBalance(this.balance + amount, this.escrow, this.frozen);
     }
 
-    public void withdraw(long amount) {
-        validatePositiveAmount(amount);
-        validateSufficientBalance(this.balance, amount);
-        this.balance -= amount;
-    }
-
-    /**
-     * 에스크로 보관
-     * <p>
-     * 구매자 구매 시 구매자의 잔액 차감 하고 에스크로 증가
-     *
-     * @param amount 에스크로로 이동할 금액
-     */
-    public void moveToEscrow(long amount) {
+    public AssetBalance withdraw(long amount) {
         validatePositiveAmount(amount);
         validateSufficientBalance(this.balance, amount);
-
-        this.balance -= amount;
-        this.escrow += amount;
+        return new AssetBalance(this.balance - amount, this.escrow, this.frozen);
     }
 
-    /**
-     * 에스크로 잔액을 사용 가능 잔액으로 복원 (환불 시)
-     * 거래 취소 또는 환불 에스크로 차감하고 잔액 증가
-     *
-     * @param amount 복원할 금액
-     */
-    public void releaseEscrow(long amount) {
+    public AssetBalance moveToEscrow(long amount) {
+        validatePositiveAmount(amount);
+        validateSufficientBalance(this.balance, amount);
+        return new AssetBalance(this.balance - amount, this.escrow + amount, this.frozen);
+    }
+
+    public AssetBalance cancelEscrow(long amount) {
         validatePositiveAmount(amount);
         validateSufficientBalance(this.escrow, amount);
-
-        this.balance += amount;
-        this.escrow -= amount;
+        return new AssetBalance(this.balance + amount, this.escrow - amount, this.frozen);
     }
 
-    /**
-     * 에스크로 잔액 차감 (정산 완료 시)
-     * <p>
-     * 구매 확정 시 구매자 escrow 차감하고
-     * 판매자의 잔액을 증가함
-     *
-     * @param amount 차감할 금액
-     */
-    public void deductEscrow(long amount) {
+    public AssetBalance deductEscrow(long amount) {
         validatePositiveAmount(amount);
         validateSufficientBalance(this.escrow, amount);
-
-        this.escrow -= amount;
+        return new AssetBalance(this.balance, this.escrow - amount, this.frozen);
     }
 
-    public Long getTotal() {
-        return this.balance + this.escrow;
+    public AssetBalance freeze(long amount) {
+        validatePositiveAmount(amount);
+        validateSufficientBalance(this.balance, amount);
+        return new AssetBalance(this.balance - amount, this.escrow, this.frozen + amount);
+    }
+
+    public AssetBalance unfreeze(long amount) {
+        validatePositiveAmount(amount);
+        validateSufficientBalance(this.frozen, amount);
+        return new AssetBalance(this.balance + amount, this.escrow, this.frozen - amount);
+    }
+
+    public AssetBalance deductFrozen(long amount) {
+        validatePositiveAmount(amount);
+        validateSufficientBalance(this.frozen, amount);
+        return new AssetBalance(this.balance, this.escrow, this.frozen - amount);
     }
 
     private void validatePositiveAmount(long amount) {
@@ -104,7 +89,7 @@ public class AssetBalance {
         }
     }
 
-    private void validateSufficientBalance(Long currentBalance, long amount) {
+    private void validateSufficientBalance(long currentBalance, long amount) {
         if (currentBalance < amount) {
             throw new InsufficientBalanceException();
         }

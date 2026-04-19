@@ -2,12 +2,12 @@ package com.ureca.snac.payment.listener;
 
 import com.ureca.snac.payment.event.alert.AutoCancelFailureEvent;
 import com.ureca.snac.payment.event.alert.CompensationFailureEvent;
-import com.ureca.snac.payment.service.PaymentAlertService;
+import com.ureca.snac.payment.service.PaymentAlertNotifier;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -25,11 +25,15 @@ import static org.mockito.BDDMockito.verify;
 @DisplayName("CriticalPaymentFailureAlertListenerTest 단위 테스트")
 class CriticalPaymentFailureAlertListenerTest {
 
-    @InjectMocks
     private CriticalPaymentFailureAlertListener listener;
 
     @Mock
-    private PaymentAlertService paymentAlertService;
+    private PaymentAlertNotifier paymentAlertNotifier;
+
+    @BeforeEach
+    void setUp() {
+        listener = new CriticalPaymentFailureAlertListener(paymentAlertNotifier);
+    }
 
     private static final Long PAYMENT_ID = 1L;
     private static final Long MEMBER_ID = 100L;
@@ -59,7 +63,7 @@ class CriticalPaymentFailureAlertListenerTest {
             listener.handleAutoCancelFailure(event);
 
             // then
-            verify(paymentAlertService).alertAutoCancelFailure(event);
+            verify(paymentAlertNotifier).alertAutoCancelFailure(event);
         }
 
         @Test
@@ -76,13 +80,13 @@ class CriticalPaymentFailureAlertListenerTest {
                     "Cancel Error"
             );
             doThrow(new RuntimeException("Slack API Failed"))
-                    .when(paymentAlertService).alertAutoCancelFailure(event);
+                    .when(paymentAlertNotifier).alertAutoCancelFailure(event);
 
             // when & then: 예외 발생하지 않음
             listener.handleAutoCancelFailure(event);
 
             // verify: 호출은 됨
-            verify(paymentAlertService).alertAutoCancelFailure(event);
+            verify(paymentAlertNotifier).alertAutoCancelFailure(event);
         }
     }
 
@@ -110,7 +114,7 @@ class CriticalPaymentFailureAlertListenerTest {
             listener.handleCompensationFailure(event);
 
             // then
-            verify(paymentAlertService).alertCompensationFailure(event);
+            verify(paymentAlertNotifier).alertCompensationFailure(event);
         }
 
         @Test
@@ -129,13 +133,13 @@ class CriticalPaymentFailureAlertListenerTest {
                     "Compensation Error"
             );
             doThrow(new RuntimeException("Slack API Failed"))
-                    .when(paymentAlertService).alertCompensationFailure(event);
+                    .when(paymentAlertNotifier).alertCompensationFailure(event);
 
             // when & then: 예외 발생하지 않음
             listener.handleCompensationFailure(event);
 
             // verify: 호출은 됨
-            verify(paymentAlertService).alertCompensationFailure(event);
+            verify(paymentAlertNotifier).alertCompensationFailure(event);
         }
     }
 }

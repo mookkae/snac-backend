@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     /**
      * 고유 주문번호를 통해 Payment 조회
@@ -55,19 +56,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p join fetch p.member where p.id = :id")
     Optional<Payment> findByIdForUpdate(@Param("id") Long id);
-
-    /**
-     * 일정 시간 이상 PENDING 상태로 남아 있는 결제 건 조회 스케줄러에서 사용
-     *
-     * @param status    조회할 결제 상태
-     * @param threshold 기준 시각 (이 시각 이전에 생성된 결제)
-     * @param pageable  배치 크기 제어
-     * @return 기준 시각 이전에 생성된 PENDING 결제 목록
-     */
-    @Query("select p from Payment p join fetch p.member where p.status = :status and p.createdAt < :threshold")
-    List<Payment> findStalePendingPayments(@Param("status") PaymentStatus status,
-                                           @Param("threshold") LocalDateTime threshold,
-                                           Pageable pageable);
 
     /**
      * 여러 상태의 stale 결제 건 조회 (PENDING, CANCEL_REQUESTED)

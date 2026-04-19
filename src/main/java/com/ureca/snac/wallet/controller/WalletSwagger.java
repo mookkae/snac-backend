@@ -5,7 +5,7 @@ import com.ureca.snac.common.ApiResponse;
 import com.ureca.snac.swagger.annotation.UserInfo;
 import com.ureca.snac.swagger.annotation.error.ErrorCode401;
 import com.ureca.snac.swagger.annotation.error.ErrorCode404;
-import com.ureca.snac.wallet.dto.WalletSummaryResponse;
+import com.ureca.snac.wallet.dto.WalletAvailableBalanceResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,7 +24,7 @@ public interface WalletSwagger {
     @ErrorCode401
     @ErrorCode404(description = "해당 사용자의 지갑 정보를 찾을 수 없습니다")
     @GetMapping("/summary")
-    ResponseEntity<ApiResponse<WalletSummaryResponse>> getMyWalletSummary(
+    ResponseEntity<ApiResponse<WalletAvailableBalanceResponse>> getMyWalletSummary(
             @UserInfo CustomUserDetails userDetails
     );
 }

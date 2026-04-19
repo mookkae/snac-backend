@@ -34,4 +34,7 @@ public interface AssetRecorder {
 
     // 정산 출금 내역 기록
     void recordSettlement(Long memberId, Long settlementId, Long amount, Long balanceAfter);
+
+    // 회원가입 보너스 지급 여부 조회 (1차 멱등성 체크용)
+    boolean hasSignupBonusRecord(Long memberId);
 }

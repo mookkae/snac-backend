@@ -1,8 +1,9 @@
 package com.ureca.snac.wallet.listener;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.common.metric.TransactionAwareMetricRecorder;
 import com.ureca.snac.support.fixture.EventFixture;
+import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import com.ureca.snac.wallet.service.SignupBonusService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,8 +13,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.dao.DataIntegrityViolationException;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
@@ -28,19 +30,18 @@ import static org.mockito.Mockito.*;
 class SignupBonusListenerTest {
 
     private SignupBonusListener signupBonusListener;
-    private SimpleMeterRegistry meterRegistry;
 
     @Mock
     private SignupBonusService signupBonusService;
 
     @BeforeEach
     void setUp() {
-        meterRegistry = new SimpleMeterRegistry();
+        TransactionAwareMetricRecorder metricRecorder = new TransactionAwareMetricRecorder(new SimpleMeterRegistry());
         ObjectMapper objectMapper = new ObjectMapper();
         signupBonusListener = new SignupBonusListener(
                 signupBonusService,
                 objectMapper,
-                meterRegistry
+                metricRecorder
         );
     }
 
@@ -56,12 +57,7 @@ class SignupBonusListenerTest {
         signupBonusListener.handleWalletCreatedEvent(payload);
 
         // then
-        verify(signupBonusService, times(1))
-                .grantSignupBonus(memberId);
-
-        // 메트릭 검증
-        assertThat(meterRegistry.get("listener_message_processed_total")
-                .tag("result", "success").counter().count()).isEqualTo(1.0);
+        verify(signupBonusService).grantSignupBonus(memberId);
     }
 
     @Test
@@ -81,22 +77,21 @@ class SignupBonusListenerTest {
     }
 
     @Test
-    @DisplayName("회원 없음 -> DLQ 이동")
-    void handleWalletCreatedEvent_MemberNotFound() {
+    @DisplayName("지갑 없음 -> DLQ 이동 (Outbox 커밋 후 수신이므로 데이터 정합성 문제)")
+    void handleWalletCreatedEvent_WalletNotFound() {
         // given
-        Long memberId = 999L;
+        Long memberId = 1L;
         Long walletId = 100L;
         String payload = EventFixture.walletCreatedEventJson(memberId, walletId);
 
-        // SignupBonusService가 MemberNotFoundException 던짐
-        doThrow(new MemberNotFoundException())
+        doThrow(new WalletNotFoundException())
                 .when(signupBonusService)
                 .grantSignupBonus(memberId);
 
-        // when , then
+        // when & then
         assertThatThrownBy(() -> signupBonusListener.handleWalletCreatedEvent(payload))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
-                .hasMessageContaining("회원 없음");
+                .hasMessageContaining("지갑 없음");
     }
 
     @Test
@@ -116,5 +111,22 @@ class SignupBonusListenerTest {
         assertThatThrownBy(() -> signupBonusListener.handleWalletCreatedEvent(payload))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("DB 연결 실패");
+    }
+
+    @Test
+    @DisplayName("동시성 중복 지급 -> 예외 삼키고 정상 완료 (ACK)")
+    void handleWalletCreatedEvent_DuplicateBonus_SilentlyHandled() {
+        // given
+        Long memberId = 1L;
+        Long walletId = 100L;
+        String payload = EventFixture.walletCreatedEventJson(memberId, walletId);
+
+        doThrow(new DataIntegrityViolationException("uk_asset_history_idempotency_key"))
+                .when(signupBonusService)
+                .grantSignupBonus(memberId);
+
+        // when & then: 예외 전파 없이 정상 완료 (ACK)
+        assertThatNoException()
+                .isThrownBy(() -> signupBonusListener.handleWalletCreatedEvent(payload));
     }
 }

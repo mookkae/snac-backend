@@ -2,6 +2,7 @@ package com.ureca.snac.asset.service;
 
 import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.AssetType;
+import com.ureca.snac.asset.entity.TransactionDetail;
 import com.ureca.snac.asset.repository.AssetHistoryRepository;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
@@ -109,6 +110,14 @@ public class AssetRecorderImpl implements AssetRecorder {
         Member member = findMemberById(memberId);
         AssetHistory history = AssetHistory.createSettlement(member, settlementId, amount, balanceAfter);
         saveWithIdempotency(history);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasSignupBonusRecord(Long memberId) {
+        String idempotencyKey = AssetHistory.generateIdempotencyKey(
+                TransactionDetail.SIGNUP_BONUS.name(), memberId);
+        return assetHistoryRepository.existsByIdempotencyKey(idempotencyKey);
     }
 
     private Member findMemberById(Long memberId) {

@@ -1,8 +1,8 @@
 package com.ureca.snac.integration;
 
 import com.ureca.snac.money.service.MoneyDepositor;
-import com.ureca.snac.infra.dto.response.TossConfirmResponse;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
+import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
@@ -42,7 +42,7 @@ class MoneyDepositorConcurrencyIntegrationTest extends IntegrationTestSupport {
                 .status(PaymentStatus.PENDING)
                 .build());
 
-        TossConfirmResponse tossResponse = TossResponseFixture.createConfirmResponse("payment_key_concurrent");
+        PaymentConfirmResult tossResponse = TossResponseFixture.createConfirmResult("payment_key_concurrent");
 
         int threadCount = 5;
         ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
@@ -55,7 +55,7 @@ class MoneyDepositorConcurrencyIntegrationTest extends IntegrationTestSupport {
         for (int i = 0; i < threadCount; i++) {
             executorService.execute(() -> {
                 try {
-                    moneyDepositor.deposit(payment, member, tossResponse);
+                    moneyDepositor.deposit(payment.getId(), member.getId(), tossResponse);
                     successCount.incrementAndGet();
                 } catch (PaymentAlreadySuccessException e) {
                     failCount.incrementAndGet();

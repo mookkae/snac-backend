@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import static com.ureca.snac.common.BaseCode.PAYMENT_CANCEL_PROCESSING;
 import static com.ureca.snac.common.BaseCode.PAYMENT_CANCEL_SUCCESS;
 
 @Slf4j
@@ -32,10 +33,14 @@ public class PaymentController implements PaymentSwagger {
         log.info("[결제 취소 요청] 시작. paymentKey : {}", paymentKey);
 
         PaymentCancelResponse cancelResponse = paymentService.cancelPayment(
-                paymentKey, request.reason(), userDetails.getUsername()
+                paymentKey, request.reason(), userDetails.getMember().getId()
         );
         log.info("[결제 취소 요청] 성공 paymentKey : {}", paymentKey);
 
+        if (cancelResponse.processing()) {
+            return ResponseEntity.accepted()
+                    .body(ApiResponse.of(PAYMENT_CANCEL_PROCESSING, cancelResponse));
+        }
         return ResponseEntity.ok(ApiResponse.of(PAYMENT_CANCEL_SUCCESS, cancelResponse));
     }
 }

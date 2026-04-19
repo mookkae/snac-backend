@@ -195,7 +195,7 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
     class ProcessPayoutTest {
 
         @Test
-        @DisplayName("자동 정산 시 buyer 에스크로 차감, seller 머니 입금, 거래 COMPLETED")
+        @DisplayName("자동 정산 시 buyer 에스크로 차감, seller 머니 입금")
         void processPayout_deductsEscrowAndPaysSellerMoney() {
             // given
             walletService.depositMoney(buyer.getId(), MONEY_AMOUNT);
@@ -214,7 +214,6 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
             // seller 머니 입금
             Wallet sellerWallet = walletRepository.findByMemberId(seller.getId()).orElseThrow();
             assertThat(sellerWallet.getMoneyBalance()).isEqualTo(MONEY_AMOUNT);
-
         }
 
         @Test
@@ -253,7 +252,7 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
 
         @Test
         @DisplayName("PAYMENT_CONFIRMED 취소 시 에스크로 복원, 거래 CANCELED, 카드 삭제")
-        void cancelRealTimeTrade_paymentConfirmed_releasesEscrowAndDeletesCard() {
+        void cancelRealTimeTrade_paymentConfirmed_cancelsEscrowAndDeletesCard() {
             // given
             walletService.depositMoney(buyer.getId(), MONEY_AMOUNT);
             walletService.moveCompositeToEscrow(buyer.getId(), MONEY_AMOUNT, 0L);

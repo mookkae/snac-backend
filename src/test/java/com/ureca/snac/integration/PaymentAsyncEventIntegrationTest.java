@@ -6,7 +6,7 @@ import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
 import com.ureca.snac.config.AggregateExchangeMapper;
 import com.ureca.snac.config.RabbitMQQueue;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -16,6 +16,7 @@ import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.support.IntegrationTestSupport;
 import com.ureca.snac.support.fixture.EventFixture;
@@ -54,7 +55,7 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
     private PaymentInternalService paymentInternalService;
 
     @MockitoBean
-    private PaymentGatewayAdapter paymentGatewayAdapter;
+    private PaymentGatewayPort paymentGatewayPort;
 
     private Member member;
 
@@ -71,18 +72,18 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
     class CompensationEventTest {
 
         @Test
-        @DisplayName("성공 : 보상 이벤트 → Wallet 출금 + AssetHistory + compensationCompleted")
+        @DisplayName("성공 : 보상 이벤트 → CANCEL_REQUESTED → CANCELED + Wallet frozen 소각 + AssetHistory")
         void shouldProcessCompensationEvent() {
-            // given: 충전 완료 후 CANCELED 상태로 변경 (토스 취소 성공 시뮬레이션)
-            Payment canceledPayment = createCanceledPayment();
+            // given: CANCEL_REQUESTED + frozen 상태 (compensateCancellationFailure는 상태 안 바꿈)
+            Payment cancelRequestedPayment = createCancelRequestedPayment();
 
             // when: 보상 이벤트 발행
-            publishCompensationEvent(canceledPayment);
+            publishCompensationEvent(cancelRequestedPayment);
 
-            // then: 비동기 처리 완료 대기
-            waitForCompensationCompleted(canceledPayment.getId());
+            // then: 비동기 처리 완료 대기 (status == CANCELED)
+            waitForCancellationCompleted(cancelRequestedPayment.getId());
 
-            // Wallet 출금 확인
+            // Wallet frozen 소각 확인 (balance는 freeze 시 이미 감소)
             Wallet wallet = walletRepository.findByMemberId(member.getId()).orElseThrow();
             assertThat(wallet.getMoneyBalance()).isZero();
 
@@ -94,20 +95,20 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
         }
 
         @Test
-        @DisplayName("멱등성 : 동일 이벤트 2회 발행 → Wallet 출금 1회만")
+        @DisplayName("멱등성 : 동일 이벤트 2회 발행 → 1회만 처리 (status 기반 중복 방지)")
         void shouldBeIdempotentForDuplicateEvents() {
             // given
-            Payment canceledPayment = createCanceledPayment();
+            Payment cancelRequestedPayment = createCancelRequestedPayment();
 
             // when: 동일 이벤트 2회 발행
-            publishCompensationEvent(canceledPayment);
-            publishCompensationEvent(canceledPayment);
+            publishCompensationEvent(cancelRequestedPayment);
+            publishCompensationEvent(cancelRequestedPayment);
 
-            // then: 처리 완료 대기
-            waitForCompensationCompleted(canceledPayment.getId());
+            // then: 처리 완료 대기 (첫 번째 이벤트 → CANCELED, 두 번째 → skip)
+            waitForCancellationCompleted(cancelRequestedPayment.getId());
             waitForQueueEmpty(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_QUEUE);
 
-            // Wallet 잔액 0 (1회만 출금)
+            // Wallet 잔액 0 (1회만 deductFrozen)
             Wallet wallet = walletRepository.findByMemberId(member.getId()).orElseThrow();
             assertThat(wallet.getMoneyBalance()).isZero();
         }
@@ -147,23 +148,27 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
             // given: 충전 완료
             String paymentKey = "e2e_pk_" + System.currentTimeMillis();
             MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                    new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+                    new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
             mockTossConfirm(paymentKey);
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
 
             Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
             PaymentCancelResponse cancelResponse = PaymentCancelResponseFixture.create(
                     paymentKey, RECHARGE_AMOUNT, "E2E 보상 테스트");
 
+            // 실제 취소 흐름 재현: Toss 취소 API 호출 전 prepareForCancellation (CANCEL_REQUESTED + freeze)
+            paymentInternalService.prepareForCancellation(payment.getId());
+            Payment preparedPayment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
+
             // when: compensateCancellationFailure 호출 (보상 트랜잭션 시작점)
             paymentInternalService.compensateCancellationFailure(
-                    payment, member, cancelResponse, new RuntimeException("DB 실패 시뮬레이션"));
+                    preparedPayment, member.getId(), cancelResponse, new RuntimeException("DB 실패 시뮬레이션"));
 
             // then: Outbox PUBLISHED 확인
             waitForOutboxPublished(payment.getId());
 
-            // then: compensationCompleted 확인
-            waitForCompensationCompleted(payment.getId());
+            // then: Payment CANCELED 전환 확인 (processCompensation 완료)
+            waitForCancellationCompleted(payment.getId());
 
             // then: Wallet 출금 확인
             Wallet wallet = walletRepository.findByMemberId(member.getId()).orElseThrow();
@@ -179,18 +184,23 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
 
     // ================= Helper ====================
 
-    private Payment createCanceledPayment() {
+    /**
+     * 보상 리스너 테스트용 픽스처
+     * compensateCancellationFailure가 Payment 상태를 바꾸지 않으므로
+     * CANCEL_REQUESTED + frozen 상태로 반환 (processCompensation이 CANCELED로 전환)
+     */
+    private Payment createCancelRequestedPayment() {
         String paymentKey = "comp_pk_" + System.currentTimeMillis();
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
 
         Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
-        payment.cancel("보상 테스트용 취소");
-        paymentRepository.saveAndFlush(payment);
 
-        return payment;
+        // CANCEL_REQUESTED + frozen 상태로 종료 (CANCELED 전환은 processCompensation 책임)
+        paymentInternalService.prepareForCancellation(payment.getId());
+        return paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
     }
 
     private void publishCompensationEvent(Payment payment) {
@@ -213,12 +223,12 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
         );
     }
 
-    private void waitForCompensationCompleted(Long paymentId) {
+    private void waitForCancellationCompleted(Long paymentId) {
         await().atMost(ASYNC_TIMEOUT)
                 .pollInterval(Duration.ofMillis(200))
                 .until(() -> {
                     Payment p = paymentRepository.findById(paymentId).orElseThrow();
-                    return p.isCompensationCompleted();
+                    return p.getStatus() == PaymentStatus.CANCELED;
                 });
     }
 
@@ -266,7 +276,7 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
     }
 
     private void mockTossConfirm(String paymentKey) {
-        given(paymentGatewayAdapter.confirmPayment(anyString(), anyString(), anyLong()))
-                .willReturn(TossResponseFixture.createConfirmResponse(paymentKey));
+        given(paymentGatewayPort.confirmPayment(anyString(), anyString(), anyLong()))
+                .willReturn(TossResponseFixture.createConfirmResult(paymentKey));
     }
 }

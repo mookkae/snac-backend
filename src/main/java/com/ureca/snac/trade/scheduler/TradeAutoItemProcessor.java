@@ -55,7 +55,7 @@ public class TradeAutoItemProcessor {
         long moneyToRefund = trade.getMoneyAmount();
 
         CompositeBalanceResult result =
-                walletService.releaseCompositeEscrow(buyer.getId(), moneyToRefund, point);
+                walletService.cancelCompositeEscrow(buyer.getId(), moneyToRefund, point);
 
         if (moneyToRefund > 0) {
             String title = String.format("%s %dGB 자동 환불",

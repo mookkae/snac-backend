@@ -125,10 +125,10 @@ public abstract class IntegrationTestSupport {
     @MockitoBean
     protected SnsService snsService;
 
-    @MockitoBean
+    @Autowired
     protected SlackNotifier slackNotifier;
 
-    @MockitoBean
+    @Autowired
     protected DlqMonitor dlqMonitor;
 
     // 필요한 Repository, 빈
