@@ -29,7 +29,7 @@ public class MoneyRechargeController implements MoneyRechargeSwagger {
     public ResponseEntity<ApiResponse<MoneyRechargePreparedResponse>> prepareRecharge(
             @Valid @RequestBody MoneyRechargeRequest request,
             @UserInfo CustomUserDetails userDetails) {
-        MoneyRechargePreparedResponse response = moneyService.prepareRecharge(request, userDetails.getUsername());
+        MoneyRechargePreparedResponse response = moneyService.prepareRecharge(request, userDetails.getMember());
 
         return ResponseEntity.ok(ApiResponse.of(MONEY_RECHARGE_PREPARE_SUCCESS, response));
     }
@@ -45,7 +45,7 @@ public class MoneyRechargeController implements MoneyRechargeSwagger {
 
         MoneyRechargeSuccessResponse successResponse =
                 moneyService.processRechargeSuccess(
-                        paymentKey, orderId, amount, userDetails.getUsername()
+                        paymentKey, orderId, amount, userDetails.getMember().getId()
                 );
 
         log.info("[결제 성공 처리] 완료, 응답 반환. 주문번호 : {}", orderId);

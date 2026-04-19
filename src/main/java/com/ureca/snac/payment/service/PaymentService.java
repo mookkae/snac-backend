@@ -38,10 +38,10 @@ public interface PaymentService {
      * 결제 확정 전 검증
      * MoneyService에서 외부 API 호출 전 검증 용도 별도 메서드로 분리
      *
-     * @param orderId 주문 ID
-     * @param amount  결제 금액
-     * @param member  결제 요청자
+     * @param orderId  주문 ID
+     * @param amount   결제 금액
+     * @param memberId 결제 요청자 ID
      * @return 검증된 Payment 엔티티
      */
-    Payment findAndValidateForConfirmation(String orderId, Long amount, Member member);
+    Payment findAndValidateForConfirmation(String orderId, Long amount, Long memberId);
 }

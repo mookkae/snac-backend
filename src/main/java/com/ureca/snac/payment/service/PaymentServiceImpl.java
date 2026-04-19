@@ -1,13 +1,17 @@
 package com.ureca.snac.payment.service;
 
-import com.ureca.snac.infra.PaymentGatewayAdapter;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.exception.AlreadyUsedRechargeCannotCancelException;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
+import com.ureca.snac.payment.port.out.exception.GatewayNotCancelableException;
+import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
 import io.micrometer.core.instrument.Counter;
@@ -24,22 +28,15 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final MemberRepository memberRepository;
     private final PaymentRepository paymentRepository;
-
-    // 외부 통신은 어댑터를 통해 수행
-    private final PaymentGatewayAdapter paymentGatewayAdapter;
-    // 내부 하위 서비스 레이어 (DB 상태 변경 + 보상 처리)
+    private final PaymentGatewayPort paymentGatewayPort;
     private final PaymentInternalService paymentInternalService;
-    // 잔액검증만 쓸꺼
     private final WalletService walletService;
     private final MeterRegistry meterRegistry;
-
 
     @Override
     @Transactional
     public Payment preparePayment(Member member, Long amount) {
-        // Payment 객체 생성하고
         Payment payment = Payment.prepare(member, amount);
-        // 디비에 저장
         return paymentRepository.save(payment);
     }
 
@@ -57,52 +54,53 @@ public class PaymentServiceImpl implements PaymentService {
                     .orElseThrow(PaymentNotFoundException::new);
 
             long currentUserBalance = walletService.getMoneyBalance(member.getId());
-
             if (currentUserBalance < payment.getAmount()) {
                 throw new AlreadyUsedRechargeCannotCancelException();
             }
 
-            // Payment 객체에게 도메인 취소 검증을 위임
             payment.validateForCancellation(member);
             log.info("[결제 취소] 검증 통과");
 
-            // 취소 의도 기록 (SUCCESS → CANCEL_REQUESTED)
             paymentInternalService.markAsCancelRequested(payment.getId());
             log.info("[결제 취소] 취소 의도 DB 기록 완료");
 
-            // 외부 API 호출 트랜잭션 외부니까
             log.info("[결제 취소] 외부 TOSS API 호출 시작. paymentKey : {}", paymentKey);
-            PaymentCancelResponse cancelResponse =
-                    paymentGatewayAdapter.cancelPayment(paymentKey, reason);
+            PaymentCancelResult cancelResult;
+            try {
+                cancelResult = paymentGatewayPort.cancelPayment(paymentKey, reason);
+            } catch (GatewayTransientException | GatewayNotCancelableException e) {
+                status = "fail";
+                throw e;
+            }
             log.info("[결제 취소] 외부 TOSS API 호출 성공");
 
             try {
-                // 책임 위임 DB 상태 변경은 내부 서비스 계층에다가
+                PaymentCancelResponse cancelResponse = PaymentCancelResponse.builder()
+                        .paymentKey(cancelResult.paymentKey())
+                        .canceledAmount(cancelResult.canceledAmount())
+                        .canceledAt(cancelResult.canceledAt())
+                        .reason(cancelResult.reason())
+                        .build();
+
                 paymentInternalService.processCancellationInDB(payment, member, cancelResponse);
                 log.info("[결제 취소] 내부 상태 변경 완료");
                 status = "success";
+                return cancelResponse;
             } catch (Exception e) {
                 status = "compensated";
-                // 토스 취소 성공 + DB 실패 = 심각한 불일치 상태
-                // 토스는 취소 완료 상태이므로 DB를 수동으로 맞춰야 함
                 log.error("[결제 취소 보상 필요] 토스 취소 성공 but DB 실패. " +
-                                "수동 복구 필요! paymentKey: {}, memberId: {}, amount: {}, " +
-                                "canceledAt: {}, reason: {}",
-                        paymentKey,
-                        member.getId(),
-                        payment.getAmount(),
-                        cancelResponse.canceledAt(),
-                        reason,
-                        e);
+                                "수동 복구 필요! paymentKey: {}, memberId: {}, amount: {}, reason: {}",
+                        paymentKey, member.getId(), payment.getAmount(), reason, e);
 
-                // DB 상태 복구 시도 (Payment 상태 CANCELED + Outbox 이벤트 발행)
-                paymentInternalService.compensateCancellationFailure(payment, member, cancelResponse, e);
-
-                // 예외를 다시 던져 사용자에게 오류 알림 (하지만 토스 취소는 이미 완료됨)
+                PaymentCancelResponse failedResponse = PaymentCancelResponse.builder()
+                        .paymentKey(cancelResult.paymentKey())
+                        .canceledAmount(cancelResult.canceledAmount())
+                        .canceledAt(cancelResult.canceledAt())
+                        .reason(cancelResult.reason())
+                        .build();
+                paymentInternalService.compensateCancellationFailure(payment, member, failedResponse, e);
                 throw e;
             }
-
-            return cancelResponse;
         } finally {
             Counter.builder("payment_cancel_total")
                     .tag("status", status)
@@ -116,26 +114,22 @@ public class PaymentServiceImpl implements PaymentService {
     public void markAsCanceled(Long paymentId, String reason) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(PaymentNotFoundException::new);
+        if (payment.getStatus() == PaymentStatus.CANCELED) {
+            log.info("[markAsCanceled] 이미 취소된 결제. 멱등성 보장. paymentId: {}", paymentId);
+            return;
+        }
         payment.cancel(reason);
     }
 
-    /**
-     * 결제 확정 전 검증
-     *
-     * @param orderId 주문 ID
-     * @param amount  결제 금액
-     * @param member  결제 요청자
-     * @return 검증된 Payment 엔티티
-     */
     @Override
     @Transactional
-    public Payment findAndValidateForConfirmation(String orderId, Long amount, Member member) {
+    public Payment findAndValidateForConfirmation(String orderId, Long amount, Long memberId) {
         log.info("[데이터 정합성 확인] 시작. 주문번호 : {}", orderId);
 
         Payment payment = paymentRepository.findByOrderIdWithMemberForUpdate(orderId)
                 .orElseThrow(PaymentNotFoundException::new);
 
-        payment.validateForConfirmation(member, amount);
+        payment.validateForConfirmation(memberId, amount);
 
         log.info("[데이터 정합성 확인] 모든 검증 통과. 주문번호 : {}", orderId);
         return payment;

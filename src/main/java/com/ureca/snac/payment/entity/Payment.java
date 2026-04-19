@@ -4,11 +4,11 @@ import com.ureca.snac.common.BaseTimeEntity;
 import com.ureca.snac.common.exception.BusinessException;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.payment.exception.*;
+import java.util.Objects;
 import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.OffsetDateTime;
-import java.util.Objects;
 import java.util.UUID;
 
 import static com.ureca.snac.common.BaseCode.INVALID_INPUT;
@@ -102,14 +102,14 @@ public class Payment extends BaseTimeEntity {
     }
 
     // 유효성 검증 메소드
-    public void validateForConfirmation(Member member, Long amount) {
+    public void validateForConfirmation(Long memberId, Long amount) {
         if (this.status == PaymentStatus.SUCCESS) {
             throw new PaymentAlreadySuccessException();
         }
         if (this.status != PaymentStatus.PENDING) {
             throw new AlreadyCanceledPaymentException();
         }
-        if (!isOwner(member)) {
+        if (!isOwner(memberId)) {
             throw new PaymentOwnershipMismatchException();
         }
         if (!this.amount.equals(amount)) {
@@ -121,7 +121,7 @@ public class Payment extends BaseTimeEntity {
         if (this.status != PaymentStatus.SUCCESS) {
             throw new PaymentNotCancellableException();
         }
-        if (!isOwner(member)) {
+        if (!isOwner(member.getId())) {
             throw new PaymentOwnershipMismatchException();
         }
         if (isCancellationPeriodExpired()) {
@@ -144,10 +144,10 @@ public class Payment extends BaseTimeEntity {
     }
 
     // 소유주 검증
-    private boolean isOwner(Member member) {
-        if (this.member == null || member == null) {
+    private boolean isOwner(Long memberId) {
+        if (this.member == null || memberId == null) {
             return false;
         }
-        return Objects.equals(this.member.getId(), member.getId());
+        return Objects.equals(this.member.getId(), memberId);
     }
 }
