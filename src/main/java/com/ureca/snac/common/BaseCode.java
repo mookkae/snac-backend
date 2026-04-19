@@ -155,13 +155,14 @@ public enum BaseCode {
     // 결제 취소 - 예외
     ALREADY_USED_RECHARGE_CANNOT_CANCEL("ALREADY_USED_RECHARGE_CANNOT_CANCEL_409", HttpStatus.CONFLICT, "이미 사용된 내역이 있어 취소할 수 없습니다"),
 
-    // 토스 API - 예외
-    TOSS_INVALID_CARD_INFO("TOSS_INVALID_CARD_INFO_400", HttpStatus.BAD_REQUEST, "카드 정보가 유효하지 않습니다. 카드번호나 유효기간 확인해주세요"),
-    TOSS_NOT_ENOUGH_BALANCE("TOSS_NOT_ENOUGH_BALANCE_400", HttpStatus.BAD_REQUEST, "카드 잔액이 부족합니다"),
-    TOSS_INVALID_API_KEY("TOSS_INVALID_API_KEY_500", HttpStatus.INTERNAL_SERVER_ERROR,
-            "결제 연동 설정에 문제가 발생했습니다. 관리자에게 문의주세요"),
-    TOSS_API_CALL_ERROR("TOSS_API_CALL_ERROR_500", HttpStatus.INTERNAL_SERVER_ERROR, "토스 결제 시스템 연동 중 오류 발생"),
-    TOSS_API_RETRYABLE_ERROR("TOSS_API_RETRYABLE_ERROR_503", HttpStatus.SERVICE_UNAVAILABLE, "토스 결제 시스템이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요"),
+    // 결제 게이트웨이 피드백 (포트 계층 — 사용자 유발, 결과 확정)
+    GATEWAY_INVALID_CARD_INFO("GATEWAY_INVALID_CARD_INFO_400", HttpStatus.BAD_REQUEST, "카드 정보가 유효하지 않습니다. 카드번호나 유효기간 확인해주세요"),
+    GATEWAY_INSUFFICIENT_BALANCE("GATEWAY_INSUFFICIENT_BALANCE_400", HttpStatus.BAD_REQUEST, "카드 잔액이 부족합니다"),
+
+    // 결제 게이트웨이 시스템 오류 (인프라 계층 — 운영자 확인 필요)
+    PAYMENT_GATEWAY_CONFIG_ERROR("PAYMENT_GATEWAY_CONFIG_ERROR_500", HttpStatus.INTERNAL_SERVER_ERROR, "결제 연동 설정에 문제가 발생했습니다. 관리자에게 문의주세요"),
+    PAYMENT_GATEWAY_API_ERROR("PAYMENT_GATEWAY_API_ERROR_500", HttpStatus.INTERNAL_SERVER_ERROR, "결제 게이트웨이 연동 중 오류가 발생했습니다"),
+    PAYMENT_GATEWAY_TRANSIENT_ERROR("PAYMENT_GATEWAY_TRANSIENT_ERROR_503", HttpStatus.SERVICE_UNAVAILABLE, "결제 시스템이 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요"),
 
     // 지갑 - 성공
     WALLET_SUMMARY_SUCCESS("WALLET_SUMMARY_SUCCESS_200", HttpStatus.OK, "내 지갑 요약 정보 조회 성공했습니다"),
