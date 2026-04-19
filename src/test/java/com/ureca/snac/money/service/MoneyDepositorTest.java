@@ -1,11 +1,14 @@
 package com.ureca.snac.money.service;
 
 import com.ureca.snac.asset.service.AssetRecorder;
-import com.ureca.snac.infra.dto.response.TossConfirmResponse;
+import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.repository.MoneyRechargeRepository;
 import com.ureca.snac.payment.entity.Payment;
+import com.ureca.snac.payment.entity.PaymentStatus;
+import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
 import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
+import com.ureca.snac.payment.exception.PaymentCancellationInProgressException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.support.IntegrationTestSupport;
 import com.ureca.snac.support.fixture.MemberFixture;
@@ -38,7 +41,7 @@ import static org.mockito.Mockito.*;
 class MoneyDepositorTest extends IntegrationTestSupport {
 
     @Autowired
-    private MoneyDepositor moneyDepositor;
+    private MoneyDepositorRetryFacade moneyDepositor;
 
     @MockitoBean
     private PaymentRepository paymentRepository;
@@ -54,7 +57,7 @@ class MoneyDepositorTest extends IntegrationTestSupport {
 
     private Member member;
     private Payment payment;
-    private TossConfirmResponse tossConfirmResponse;
+    private PaymentConfirmResult tossConfirmResponse;
 
     private static final String PAYMENT_KEY = "test_payment_key";
     private static final Long AMOUNT = 10000L;
@@ -63,9 +66,7 @@ class MoneyDepositorTest extends IntegrationTestSupport {
     void setUp() {
         member = MemberFixture.createMember(1L);
         payment = PaymentFixture.createPendingPayment(member);
-        tossConfirmResponse = new TossConfirmResponse(
-                PAYMENT_KEY, "카드", OffsetDateTime.now()
-        );
+        tossConfirmResponse = new PaymentConfirmResult(PAYMENT_KEY, "카드", OffsetDateTime.now());
     }
 
     @Nested
@@ -86,7 +87,7 @@ class MoneyDepositorTest extends IntegrationTestSupport {
 
                 // when & then: 예외 발생하며 3회 호출됨
                 assertThatThrownBy(() ->
-                        moneyDepositor.deposit(payment, member, tossConfirmResponse)
+                        moneyDepositor.deposit(payment.getId(), member.getId(), tossConfirmResponse)
                 ).isInstanceOf(TransientDataAccessException.class);
 
                 verify(paymentRepository, times(3)).findByIdForUpdate(any());
@@ -109,7 +110,7 @@ class MoneyDepositorTest extends IntegrationTestSupport {
                 given(walletService.depositMoney(anyLong(), anyLong())).willReturn(AMOUNT);
 
                 // when: 예외 없이 완료
-                moneyDepositor.deposit(payment, member, tossConfirmResponse);
+                moneyDepositor.deposit(payment.getId(), member.getId(), tossConfirmResponse);
 
                 // then: 총 3회 호출
                 verify(paymentRepository, times(3)).findByIdForUpdate(any());
@@ -125,7 +126,7 @@ class MoneyDepositorTest extends IntegrationTestSupport {
 
                 // when & then: 예외 발생하며 1회만 호출됨
                 assertThatThrownBy(() ->
-                        moneyDepositor.deposit(payment, member, tossConfirmResponse)
+                        moneyDepositor.deposit(payment.getId(), member.getId(), tossConfirmResponse)
                 ).isInstanceOf(IllegalStateException.class);
 
                 verify(paymentRepository, times(1)).findByIdForUpdate(any());
@@ -137,18 +138,48 @@ class MoneyDepositorTest extends IntegrationTestSupport {
         class IdempotencyTest {
 
             @Test
-            @DisplayName("정상 : 이미 처리된 충전 요청(SUCCESS 상태)은 PaymentAlreadySuccessException 반환")
+            @DisplayName("예외 : 이미 처리된 충전 요청(SUCCESS 상태)은 PaymentAlreadySuccessException 반환")
             void deposit_ShouldThrowIfAlreadyProcessed() {
-            // given: FOR UPDATE 락 조회 시 이미 SUCCESS 상태인 Payment 반환
-            Payment successPayment = PaymentFixture.createSuccessPayment(member);
-            given(paymentRepository.findByIdForUpdate(any())).willReturn(Optional.of(successPayment));
+                // given: FOR UPDATE 락 조회 시 이미 SUCCESS 상태인 Payment 반환
+                Payment successPayment = PaymentFixture.createSuccessPayment(member);
+                given(paymentRepository.findByIdForUpdate(any())).willReturn(Optional.of(successPayment));
 
-            // when & then: 중복 처리 예외 반환 (HTTP 4xx)
-            assertThatThrownBy(() -> moneyDepositor.deposit(payment, member, tossConfirmResponse))
-                    .isInstanceOf(PaymentAlreadySuccessException.class);
+                // when & then: 중복 처리 예외 반환 (HTTP 4xx)
+                assertThatThrownBy(() -> moneyDepositor.deposit(payment.getId(), member.getId(), tossConfirmResponse))
+                        .isInstanceOf(PaymentAlreadySuccessException.class);
                 // 입금 처리 호출 안 됨
                 verify(moneyRechargeRepository, never()).save(any());
                 verify(walletService, never()).depositMoney(anyLong(), anyLong());
+            }
+
+            @Test
+            @DisplayName("예외 : 취소된 결제(CANCELED 상태)는 AlreadyCanceledPaymentException 반환")
+            void deposit_ShouldThrowIfCanceled() {
+                // given: FOR UPDATE 락 조회 시 CANCELED 상태인 Payment 반환
+                Payment canceledPayment = PaymentFixture.builder()
+                        .member(member)
+                        .status(PaymentStatus.CANCELED)
+                        .build();
+                given(paymentRepository.findByIdForUpdate(any())).willReturn(Optional.of(canceledPayment));
+
+                // when & then
+                assertThatThrownBy(() -> moneyDepositor.deposit(payment.getId(), member.getId(), tossConfirmResponse))
+                        .isInstanceOf(AlreadyCanceledPaymentException.class);
+            }
+
+            @Test
+            @DisplayName("예외 : 취소 요청 중인 결제(CANCEL_REQUESTED 상태)는 PaymentCancellationInProgressException 반환")
+            void deposit_ShouldThrowIfCancelRequested() {
+                // given: FOR UPDATE 락 조회 시 CANCEL_REQUESTED 상태인 Payment 반환
+                Payment cancelRequestedPayment = PaymentFixture.builder()
+                        .member(member)
+                        .status(PaymentStatus.CANCEL_REQUESTED)
+                        .build();
+                given(paymentRepository.findByIdForUpdate(any())).willReturn(Optional.of(cancelRequestedPayment));
+
+                // when & then
+                assertThatThrownBy(() -> moneyDepositor.deposit(payment.getId(), member.getId(), tossConfirmResponse))
+                        .isInstanceOf(PaymentCancellationInProgressException.class);
             }
         }
     }

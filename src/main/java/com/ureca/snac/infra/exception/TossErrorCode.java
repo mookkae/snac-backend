@@ -1,4 +1,4 @@
-package com.ureca.snac.infra;
+package com.ureca.snac.infra.exception;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;

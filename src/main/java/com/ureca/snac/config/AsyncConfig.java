@@ -61,6 +61,9 @@ public class AsyncConfig {
      * <p>
      * 낮은 우선순위 의 부가기능과 알림 실패해도 비즈니스 영향 없어서
      * 큐의 사이즈도 줄이고 외부 API 호출로 시간 불확실을 독립적으로 실행
+     * <p>
+     * DiscardPolicy 의도: 큐 포화 시 결제 비즈니스 스레드를 보호하기 위해 알림을 버린다.
+     * CRITICAL 결제 알림은 대사 스케줄러가 동일 건에 대해 재발송하므로 단순 소실이 아니다.
      */
     @Bean(name = NOTIFICATION_EXECUTOR_NAME)
     public Executor notificationAsyncExecutor() {

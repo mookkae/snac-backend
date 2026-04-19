@@ -9,8 +9,8 @@ import com.ureca.snac.dev.dto.DevForceTradeCompleteRequest;
 import com.ureca.snac.dev.dto.DevPointGrantRequest;
 import com.ureca.snac.dev.dto.DevRechargeRequest;
 import com.ureca.snac.dev.support.DevDataSupport;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
-import com.ureca.snac.infra.dto.response.TossConfirmResponse;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.exception.MemberNotFoundException;
 import com.ureca.snac.member.repository.MemberRepository;
@@ -38,7 +38,7 @@ public class DevToolServiceImpl implements DevToolService {
     private final PaymentRepository paymentRepository;
     private final AssetRecorder assetRecorder;
     private final AssetHistoryRepository assetHistoryRepository;
-    private final PaymentGatewayAdapter paymentGatewayAdapter;
+    private final PaymentGatewayPort paymentGatewayPort;
 
     public DevToolServiceImpl(
             MemberRepository memberRepository,
@@ -50,7 +50,7 @@ public class DevToolServiceImpl implements DevToolService {
             AssetRecorder assetRecorder,
             AssetHistoryRepository assetHistoryRepository,
             @Qualifier("fake")
-            PaymentGatewayAdapter paymentGatewayAdapter) {
+            PaymentGatewayPort paymentGatewayPort) {
 
         this.memberRepository = memberRepository;
         this.paymentService = paymentService;
@@ -60,7 +60,7 @@ public class DevToolServiceImpl implements DevToolService {
         this.paymentRepository = paymentRepository;
         this.assetRecorder = assetRecorder;
         this.assetHistoryRepository = assetHistoryRepository;
-        this.paymentGatewayAdapter = paymentGatewayAdapter;
+        this.paymentGatewayPort = paymentGatewayPort;
     }
 
     @Override
@@ -74,14 +74,14 @@ public class DevToolServiceImpl implements DevToolService {
 
         Payment payment = paymentService.preparePayment(member, request.amount());
 
-        TossConfirmResponse fakeConfirmResponse =
-                paymentGatewayAdapter.confirmPayment(
+        PaymentConfirmResult fakeConfirmResponse =
+                paymentGatewayPort.confirmPayment(
                         "dev_payment_key_" + System.currentTimeMillis(),
                         payment.getOrderId(),
                         payment.getAmount()
                 );
 
-        moneyDepositor.deposit(payment, member, fakeConfirmResponse);
+        moneyDepositor.deposit(payment.getId(), member.getId(), fakeConfirmResponse);
 
         log.info("[개발용 머니 충전] 완료. 생성된 Payment Id : {}", payment.getId());
         return payment.getId();

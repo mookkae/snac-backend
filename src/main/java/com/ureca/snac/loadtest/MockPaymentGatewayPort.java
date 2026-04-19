@@ -2,10 +2,11 @@ package com.ureca.snac.loadtest;
 
 import com.ureca.snac.common.BaseCode;
 import com.ureca.snac.common.exception.ExternalApiException;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
-import com.ureca.snac.infra.dto.response.TossConfirmResponse;
-import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
-import com.ureca.snac.payment.dto.PaymentCancelResponse;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.GatewayPaymentStatus;
+import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
+import com.ureca.snac.payment.port.out.dto.PaymentInquiryResult;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
@@ -27,7 +28,7 @@ import java.util.concurrent.ThreadLocalRandom;
 @Primary
 @Component
 @Profile("loadtest")
-public class MockPaymentGatewayAdapter implements PaymentGatewayAdapter {
+public class MockPaymentGatewayPort implements PaymentGatewayPort {
 
     @Value("${loadtest.fault.cancel-failure-rate}")
     private double cancelFailureRate;
@@ -35,43 +36,41 @@ public class MockPaymentGatewayAdapter implements PaymentGatewayAdapter {
     private final ConcurrentHashMap<String, String> confirmedPayments = new ConcurrentHashMap<>();
 
     @Override
-    public TossConfirmResponse confirmPayment(String paymentKey, String orderId, Long amount) {
+    public PaymentConfirmResult confirmPayment(String paymentKey, String orderId, Long amount) {
         log.debug("[Mock Toss] confirmPayment 성공. paymentKey: {}, orderId: {}", paymentKey, orderId);
         confirmedPayments.put(orderId, paymentKey);
 
-        return new TossConfirmResponse(paymentKey, "카드", OffsetDateTime.now());
+        return new PaymentConfirmResult(paymentKey, "카드", OffsetDateTime.now());
     }
 
     @Override
-    public PaymentCancelResponse cancelPayment(String paymentKey, String reason) {
+    public PaymentCancelResult cancelPayment(String paymentKey, String reason) {
         if (ThreadLocalRandom.current().nextDouble() < cancelFailureRate) {
             log.warn("[Mock Toss] cancelPayment 장애 주입. paymentKey: {}", paymentKey);
-            throw new ExternalApiException(BaseCode.TOSS_API_CALL_ERROR,
+            throw new ExternalApiException(BaseCode.PAYMENT_GATEWAY_API_ERROR,
                     "[LoadTest] Mock cancel failure for reconciliation test");
         }
 
         log.debug("[Mock Toss] cancelPayment 성공. paymentKey: {}", paymentKey);
-        return PaymentCancelResponse.builder()
-                .paymentKey(paymentKey)
-                .canceledAmount(0L)
-                .canceledAt(OffsetDateTime.now())
-                .reason(reason)
-                .build();
+        return new PaymentCancelResult(
+                paymentKey,
+                0L,
+                OffsetDateTime.now(),
+                reason
+        );
     }
 
     @Override
-    public TossPaymentInquiryResponse inquirePaymentByOrderId(String orderId) {
+    public PaymentInquiryResult inquirePaymentByOrderId(String orderId) {
         String paymentKey = confirmedPayments.get(orderId);
 
         if (paymentKey == null) {
             log.debug("[Mock Toss] inquiry NOT_FOUND. orderId: {}", orderId);
-            throw new ExternalApiException(BaseCode.TOSS_API_CALL_ERROR,
+            throw new ExternalApiException(BaseCode.PAYMENT_GATEWAY_API_ERROR,
                     "[Mock] Payment not found: " + orderId);
         }
 
         log.debug("[Mock Toss] inquiry DONE. orderId: {}", orderId);
-        return new TossPaymentInquiryResponse(
-                paymentKey, orderId, "DONE", "카드", 0L, OffsetDateTime.now()
-        );
+        return new PaymentInquiryResult(GatewayPaymentStatus.DONE, paymentKey, orderId, 0L, "카드", OffsetDateTime.now());
     }
 }

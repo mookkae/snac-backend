@@ -13,4 +13,8 @@ public class ExternalApiException extends BaseCustomException {
     public ExternalApiException(BaseCode baseCode, String customMessage) {
         super(baseCode, customMessage);
     }
+
+    public ExternalApiException(BaseCode baseCode, String customMessage, Throwable cause) {
+        super(baseCode, customMessage, cause);
+    }
 }

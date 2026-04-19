@@ -1,11 +1,11 @@
 package com.ureca.snac.payment.scheduler;
 
 import com.ureca.snac.common.exception.ExternalApiException;
-import com.ureca.snac.infra.PaymentGatewayAdapter;
-import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
-import com.ureca.snac.payment.exception.TossRetryableException;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.PaymentInquiryResult;
+import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.payment.service.PaymentAlertService;
 import com.ureca.snac.payment.service.PaymentInternalService;
@@ -34,7 +34,7 @@ import java.util.List;
 public class PaymentReconciliationScheduler {
 
     private final PaymentRepository paymentRepository;
-    private final PaymentGatewayAdapter paymentGatewayAdapter;
+    private final PaymentGatewayPort paymentGatewayPort;
     private final PaymentReconciliationProcessor processor;
     private final PaymentInternalService paymentInternalService;
     private final PaymentAlertService paymentAlertService;
@@ -44,7 +44,7 @@ public class PaymentReconciliationScheduler {
 
     public PaymentReconciliationScheduler(
             PaymentRepository paymentRepository,
-            PaymentGatewayAdapter paymentGatewayAdapter,
+            PaymentGatewayPort paymentGatewayPort,
             PaymentReconciliationProcessor processor,
             PaymentInternalService paymentInternalService,
             PaymentAlertService paymentAlertService,
@@ -53,7 +53,7 @@ public class PaymentReconciliationScheduler {
             @Value("${reconciliation.scheduler.batch-size}") int batchSize
     ) {
         this.paymentRepository = paymentRepository;
-        this.paymentGatewayAdapter = paymentGatewayAdapter;
+        this.paymentGatewayPort = paymentGatewayPort;
         this.processor = processor;
         this.paymentInternalService = paymentInternalService;
         this.paymentAlertService = paymentAlertService;
@@ -99,10 +99,10 @@ public class PaymentReconciliationScheduler {
     private void reconcilePending(Payment payment) {
         String orderId = payment.getOrderId();
 
-        TossPaymentInquiryResponse tossResponse;
+        PaymentInquiryResult inquiryResult;
         try {
-            tossResponse = paymentGatewayAdapter.inquirePaymentByOrderId(orderId);
-        } catch (TossRetryableException e) {
+            inquiryResult = paymentGatewayPort.inquirePaymentByOrderId(orderId);
+        } catch (GatewayTransientException e) {
             log.warn("[대사] 토스 조회 일시적 오류, 다음 주기에 재시도. orderId: {}", orderId);
             return;
         } catch (ExternalApiException e) {
@@ -111,14 +111,14 @@ public class PaymentReconciliationScheduler {
             return;
         }
 
-        if (tossResponse.isDone()) {
-            handleTossDonePayment(payment, tossResponse);
-        } else if (tossResponse.isCanceledOrFailed()) {
+        if (inquiryResult.isDone()) {
+            handleTossDonePayment(payment, inquiryResult);
+        } else if (inquiryResult.isCanceledOrFailed()) {
             log.info("[대사] 토스에서 이미 취소/만료 상태. 로컬 취소 진행. orderId: {}", orderId);
             processor.cancelPayment(payment.getId(),
-                    "대사: 토스 상태 " + tossResponse.status() + " (orderId: " + orderId + ")");
+                    "대사: 토스 상태 " + inquiryResult.status() + " (orderId: " + orderId + ")");
         } else {
-            log.info("[대사] 토스 결제 진행 중 상태({}). 스킵. orderId: {}", tossResponse.status(), orderId);
+            log.info("[대사] 토스 결제 진행 중 상태({}). 스킵. orderId: {}", inquiryResult.status(), orderId);
         }
     }
 
@@ -127,10 +127,10 @@ public class PaymentReconciliationScheduler {
         String orderId = payment.getOrderId();
         String cancelReason = "대사: CANCEL_REQUESTED 미완료 취소 복구 (orderId: " + orderId + ")";
 
-        TossPaymentInquiryResponse tossResponse;
+        PaymentInquiryResult inquiryResult;
         try {
-            tossResponse = paymentGatewayAdapter.inquirePaymentByOrderId(orderId);
-        } catch (TossRetryableException e) {
+            inquiryResult = paymentGatewayPort.inquirePaymentByOrderId(orderId);
+        } catch (GatewayTransientException e) {
             log.warn("[대사] 토스 조회 일시적 오류, 다음 주기에 재시도. orderId: {}", orderId);
             return;
         } catch (ExternalApiException e) {
@@ -139,11 +139,11 @@ public class PaymentReconciliationScheduler {
             return;
         }
 
-        if (tossResponse.isDone()) {
+        if (inquiryResult.isDone()) {
             // 토스에서 아직 결제 상태 → 취소 API 호출 필요
             try {
-                paymentGatewayAdapter.cancelPayment(paymentKey, cancelReason);
-            } catch (TossRetryableException e) {
+                paymentGatewayPort.cancelPayment(paymentKey, cancelReason);
+            } catch (GatewayTransientException e) {
                 log.warn("[대사] 토스 취소 일시적 오류, 다음 주기에 재시도. paymentKey: {}", paymentKey);
                 return;
             } catch (ExternalApiException e) {
@@ -162,13 +162,13 @@ public class PaymentReconciliationScheduler {
         }
     }
 
-    private void handleTossDonePayment(Payment payment, TossPaymentInquiryResponse tossResponse) {
-        String paymentKey = tossResponse.paymentKey();
+    private void handleTossDonePayment(Payment payment, PaymentInquiryResult inquiryResult) {
+        String paymentKey = inquiryResult.paymentKey();
         String cancelReason = "대사: JVM 크래시 후 미반영 결제 자동 환불 (orderId: " + payment.getOrderId() + ")";
 
         try {
-            paymentGatewayAdapter.cancelPayment(paymentKey, cancelReason);
-        } catch (TossRetryableException e) {
+            paymentGatewayPort.cancelPayment(paymentKey, cancelReason);
+        } catch (GatewayTransientException e) {
             log.warn("[대사] 토스 취소 일시적 오류, 다음 주기에 재시도. paymentKey: {}", paymentKey);
             return;
         } catch (ExternalApiException e) {

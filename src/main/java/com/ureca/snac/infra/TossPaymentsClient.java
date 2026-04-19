@@ -4,7 +4,7 @@ import com.ureca.snac.infra.dto.request.TossCancelRequest;
 import com.ureca.snac.infra.dto.request.TossConfirmRequest;
 import com.ureca.snac.infra.dto.response.TossCancelResponse;
 import com.ureca.snac.infra.dto.response.TossConfirmResponse;
-import com.ureca.snac.infra.dto.response.TossPaymentInquiryResponse;
+import com.ureca.snac.infra.dto.response.TossInquiryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -74,12 +74,12 @@ public class TossPaymentsClient {
      * @param orderId 우리 시스템의 주문번호
      * @return 토스페이먼츠 결제 조회 응답
      */
-    public TossPaymentInquiryResponse inquirePaymentByOrderId(String orderId) {
+    public TossInquiryResponse inquirePaymentByOrderId(String orderId) {
         log.info("[외부 API] 토스 페이먼츠 결제 조회 API 호출 시작. 주문번호 : {}", orderId);
 
         return tossPaymentsRestClient.get()
                 .uri("/v1/payments/orders/{orderId}", orderId)
                 .retrieve()
-                .body(TossPaymentInquiryResponse.class);
+                .body(TossInquiryResponse.class);
     }
 }
