@@ -13,27 +13,9 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
 
     Optional<Wallet> findByMemberId(Long memberId);
 
-    // 동시성 제어 하기위해서 락 써야됨
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select w from Wallet w where w.member.id= :memberId")
+    @Query("select w from Wallet w where w.member.id = :memberId")
     Optional<Wallet> findByMemberIdWithLock(@Param("memberId") Long memberId);
 
-    /**
-     * 이메일을 기준으로 Member와 Wallet을 Join
-     * 페치조인으로 한번의 쿼리 생성
-     *
-     * @param email 조회할 회원의 이메일
-     * @return 조회된 Wallet 객체
-     */
-    @Query("select w from Wallet w join fetch w.member m where m.email = :email")
-    Optional<Wallet> findByMemberEmail(@Param("email") String email);
-
-    /**
-     * 멱등성 체크용
-     * COUNT 쿼리로 최적화 (SELECT * 대비 성능 우수)
-     *
-     * @param memberId 회원 ID
-     * @return 지갑 존재 여부
-     */
     boolean existsByMemberId(Long memberId);
 }
