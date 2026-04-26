@@ -143,7 +143,7 @@ public class AssetRecorderImpl implements AssetRecorder {
 
     private boolean isDuplicateIdempotencyKey(DataIntegrityViolationException e) {
         String message = e.getMostSpecificCause().getMessage();
-        return message != null && message.contains("uk_asset_history_idempotency_key");
+        return message != null && message.contains(AssetHistory.IDEMPOTENCY_KEY_CONSTRAINT);
     }
 
     private void incrementDuplicateCounter() {

@@ -23,7 +23,7 @@ import java.time.format.DateTimeFormatter;
         // 멱등키 유니크 제약
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_asset_history_idempotency_key",
+                        name = AssetHistory.IDEMPOTENCY_KEY_CONSTRAINT,
                         columnNames = {"idempotency_key"}
                 )
         }
@@ -33,6 +33,8 @@ import java.time.format.DateTimeFormatter;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
 public class AssetHistory extends BaseTimeEntity {
+
+    public static final String IDEMPOTENCY_KEY_CONSTRAINT = "uk_asset_history_idempotency_key";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
