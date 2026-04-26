@@ -126,16 +126,24 @@ public class AssetRecorderImpl implements AssetRecorder {
     }
 
     // 멱등성 보장을 위한 저장 메서드
+    // 락 없는 SELECT-before-INSERT는 동시 진입에서 막지 못해서
+    // unique 제약 조건이 원자적으로 중복을 차단하므로 이를 최종 방어선으로 사용했음..
     private void saveWithIdempotency(AssetHistory history) {
-        String idempotencyKey = history.getIdempotencyKey();
-        if (assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)) {
-            log.warn("[자산 내역 기록] 중복 요청 감지 (멱등성). idempotencyKey: {}", idempotencyKey);
-            incrementDuplicateCounter();
-            throw new DataIntegrityViolationException("중복 멱등키: " + idempotencyKey);
+        try {
+            assetHistoryRepository.saveAndFlush(history);
+            log.info("[자산 내역 기록] 저장 완료. idempotencyKey: {}", history.getIdempotencyKey());
+        } catch (DataIntegrityViolationException e) {
+            if (isDuplicateIdempotencyKey(e)) {
+                log.warn("[자산 내역 기록] 중복 멱등키 차단. idempotencyKey: {}", history.getIdempotencyKey());
+                incrementDuplicateCounter();
+            }
+            throw e;
         }
+    }
 
-        assetHistoryRepository.save(history);
-        log.info("[자산 내역 기록] 저장 완료. idempotencyKey: {}", idempotencyKey);
+    private boolean isDuplicateIdempotencyKey(DataIntegrityViolationException e) {
+        String message = e.getMostSpecificCause().getMessage();
+        return message != null && message.contains("uk_asset_history_idempotency_key");
     }
 
     private void incrementDuplicateCounter() {

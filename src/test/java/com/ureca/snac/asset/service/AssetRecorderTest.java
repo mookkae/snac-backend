@@ -73,7 +73,7 @@ class AssetRecorderTest {
             assetRecorder.recordMoneyRecharge(member.getId(), paymentId, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getMember()).isEqualTo(member);
@@ -98,7 +98,7 @@ class AssetRecorderTest {
             assetRecorder.recordMoneyRechargeCancel(member.getId(), paymentId, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getTransactionDetail()).isNull();
@@ -123,7 +123,7 @@ class AssetRecorderTest {
                     AssetType.MONEY, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getAssetType()).isEqualTo(AssetType.MONEY);
@@ -145,7 +145,7 @@ class AssetRecorderTest {
                     AssetType.POINT, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getAssetType()).isEqualTo(AssetType.POINT);
@@ -170,7 +170,7 @@ class AssetRecorderTest {
             assetRecorder.recordTradeSell(member.getId(), tradeId, title, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getTransactionDetail()).isNull();
@@ -196,7 +196,7 @@ class AssetRecorderTest {
                     AssetType.MONEY, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getTransactionDetail()).isNull();
@@ -217,7 +217,7 @@ class AssetRecorderTest {
                     AssetType.POINT, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getAssetType()).isEqualTo(AssetType.POINT);
@@ -239,7 +239,7 @@ class AssetRecorderTest {
             assetRecorder.recordSignupBonus(member.getId(), amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getTransactionDetail()).isEqualTo(TransactionDetail.SIGNUP_BONUS);
@@ -263,7 +263,7 @@ class AssetRecorderTest {
             assetRecorder.recordTradeCompletionBonus(member.getId(), tradeId, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getTransactionDetail()).isEqualTo(TransactionDetail.TRADE_COMPLETION_BONUS);
@@ -286,7 +286,7 @@ class AssetRecorderTest {
             assetRecorder.recordSettlement(member.getId(), settlementId, amount, balanceAfter);
 
             // then
-            verify(assetHistoryRepository).save(captor.capture());
+            verify(assetHistoryRepository).saveAndFlush(captor.capture());
 
             AssetHistory saved = captor.getValue();
             assertThat(saved.getTransactionDetail()).isNull();
@@ -343,7 +343,7 @@ class AssetRecorderTest {
                     assetRecorder.recordMoneyRecharge(nonExistentMemberId, 100L, 10000L, 10000L))
                     .isInstanceOf(MemberNotFoundException.class);
 
-            verify(assetHistoryRepository, never()).save(any());
+            verify(assetHistoryRepository, never()).saveAndFlush(any());
         }
 
         @Test
@@ -351,16 +351,18 @@ class AssetRecorderTest {
         void record_duplicateIdempotencyKey_throwsException() {
             // given
             Long paymentId = 100L;
-            String idempotencyKey = "RECHARGE:" + paymentId;
+            
+            Throwable rootCause = new RuntimeException("uk_asset_history_idempotency_key constraint violation");
+            DataIntegrityViolationException exception = new DataIntegrityViolationException("error", rootCause);
 
-            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(true);
+            doThrow(exception).when(assetHistoryRepository).saveAndFlush(any());
 
             // when & then
             assertThatThrownBy(() ->
                     assetRecorder.recordMoneyRecharge(member.getId(), paymentId, 10000L, 10000L))
                     .isInstanceOf(DataIntegrityViolationException.class);
 
-            verify(assetHistoryRepository, never()).save(any());
+            verify(assetHistoryRepository, times(1)).saveAndFlush(any());
 
             // 메트릭 검증
             assertThat(meterRegistry.get("idempotency_duplicate_blocked_total")
@@ -372,19 +374,18 @@ class AssetRecorderTest {
         void record_dataIntegrityViolation_propagatesDirectly() {
             // given
             Long paymentId = 200L;
-            String idempotencyKey = "RECHARGE:" + paymentId;
 
-            given(assetHistoryRepository.existsByIdempotencyKey(idempotencyKey)).willReturn(false);
+            Throwable rootCause = new RuntimeException("other_constraint_violation");
+            DataIntegrityViolationException exception = new DataIntegrityViolationException("error", rootCause);
 
-            doThrow(new DataIntegrityViolationException("Unique constraint violation"))
-                    .when(assetHistoryRepository).save(any());
+            doThrow(exception).when(assetHistoryRepository).saveAndFlush(any());
 
             // when & then : catch 없이 인프라 예외가 그대로 전파됨
             assertThatThrownBy(() ->
                     assetRecorder.recordMoneyRecharge(member.getId(), paymentId, 5000L, 5000L))
                     .isInstanceOf(DataIntegrityViolationException.class);
 
-            verify(assetHistoryRepository, times(1)).save(any());
+            verify(assetHistoryRepository, times(1)).saveAndFlush(any());
         }
     }
 }

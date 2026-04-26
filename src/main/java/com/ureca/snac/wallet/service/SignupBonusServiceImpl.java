@@ -24,9 +24,9 @@ public class SignupBonusServiceImpl implements SignupBonusService {
     public void grantSignupBonus(Long memberId) {
         log.info("[회원가입 포인트] 지급 시작. 회원 ID: {}", memberId);
 
-        // 1. 1차 멱등성 체크: 대부분의 중복 요청을 DB 접근 없이 조기 차단
-        // 최종 멱등성은 AssetHistory.idempotency_key unique 제약이 보장한다.
-        // 그래서 멀티스레드로 진입하면 대기 중인 스레드가 여기서 걸러지고
+        // 1. 멱등성 사전 조회: 순차 중복을 조기 차단해 불필요한 락 경쟁을 방지
+        // mq의 스레드가 concurrency 1 환경이라 listener 중복은 항상 순차적이므로 대부분 여기서 잡는다.
+        // 최종 멱등성은 AssetHistory 의 멱등키가 unique 제약으로 보장
         if (isAlreadyGranted(memberId)) {
             log.info("[회원가입 포인트] 이미 지급됨. 중복 방지. 회원 ID: {}", memberId);
             return;
