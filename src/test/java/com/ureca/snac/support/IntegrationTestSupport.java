@@ -65,7 +65,7 @@ public abstract class IntegrationTestSupport {
         mysql.start();
 
         // 2. RabbitMQ
-        rabbitMQ = new RabbitMQContainer(DockerImageName.parse("rabbitmq:management"))
+        rabbitMQ = new RabbitMQContainer(DockerImageName.parse("rabbitmq:4.2.5-management"))
                 .withReuse(true);
         rabbitMQ.start();
 
