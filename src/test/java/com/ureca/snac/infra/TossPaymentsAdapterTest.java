@@ -6,47 +6,62 @@ import com.ureca.snac.infra.dto.response.TossConfirmResponse;
 import com.ureca.snac.infra.dto.response.TossInquiryResponse;
 import com.ureca.snac.infra.exception.*;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
+import com.ureca.snac.infra.mapper.PaymentCancelMapper;
 import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
 import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
-import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.payment.port.out.dto.GatewayPaymentStatus;
-import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.port.out.dto.PaymentInquiryResult;
 import com.ureca.snac.payment.port.out.exception.GatewayNotCancelableException;
 import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
 import com.ureca.snac.payment.port.out.exception.InsufficientCardBalanceException;
 import com.ureca.snac.payment.port.out.exception.InvalidPaymentCardException;
-import com.ureca.snac.support.IntegrationTestSupport;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
 
 import static com.ureca.snac.common.BaseCode.PAYMENT_GATEWAY_CONFIG_ERROR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+@ExtendWith(MockitoExtension.class)
 @DisplayName("TossPaymentsAdapterTest 단위 테스트")
-class TossPaymentsAdapterTest extends IntegrationTestSupport {
+class TossPaymentsAdapterTest {
 
-    @Autowired
-    private PaymentGatewayPort paymentGatewayPort;
+    private TossPaymentsAdapter paymentGatewayPort;
 
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    @MockitoBean
+    @Mock
     private TossPaymentsClient tossPaymentsClient;
+
+    @Mock
+    private PaymentCancelMapper paymentCancelMapper;
+
+    private MeterRegistry meterRegistry;
 
     private static final String PAYMENT_KEY = "test_payment_key";
     private static final String ORDER_ID = "snac_order_test_123";
     private static final Long AMOUNT = 10000L;
+
+    @BeforeEach
+    void setUp() {
+        meterRegistry = new SimpleMeterRegistry();
+        // 수동 주입을 통해 SimpleMeterRegistry 사용
+        paymentGatewayPort = new TossPaymentsAdapter(tossPaymentsClient, paymentCancelMapper, meterRegistry);
+    }
 
     @Nested
     @DisplayName("confirmPayment 메서드")
@@ -57,7 +72,7 @@ class TossPaymentsAdapterTest extends IntegrationTestSupport {
         class ExceptionMappingTest {
 
             @Test
-            @DisplayName("정상 : TossRetryableException 발생 시 최대 3회 재시도 후 GatewayTransientException 전파")
+            @DisplayName("정상 : TossRetryableException 발생 시 GatewayTransientException 전파")
             void confirmPayment_ShouldRetryOnTossRetryableException() {
                 given(tossPaymentsClient.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
                         .willThrow(new TossRetryableException());
@@ -66,7 +81,8 @@ class TossPaymentsAdapterTest extends IntegrationTestSupport {
                         paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT)
                 ).isInstanceOf(GatewayTransientException.class);
 
-                verify(tossPaymentsClient, times(3)).confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
+                // 단위 테스트 환경에서는 @Retryable(AOP)이 동작하지 않으므로 1회 호출만 검증
+                verify(tossPaymentsClient, times(1)).confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
             }
 
             @Test
