@@ -64,9 +64,19 @@ public class WalletServiceImpl implements WalletService {
 
     @Override
     @Transactional
+    // [낙관락] @Retryable — @Version 충돌 시 재시도
+    // @Retryable(
+    //         retryFor = ObjectOptimisticLockingFailureException.class,
+    //         maxAttempts = 5,
+    //         backoff = @Backoff(delay = 50, multiplier = 2.0),
+    //         listeners = "walletRetryListener"
+    // )
     public long depositMoney(Long memberId, long amount) {
         log.info("[머니 입금] 시작. 회원 ID : {}, 입금액 : {}", memberId, amount);
 
+        // [낙관락] 락 없이 조회 @Version으로 커밋 시점에 충돌 감지
+        // Wallet wallet = findWallet(memberId);
+        // [비관락] FOR UPDATE로 조회 직렬화 보장
         Wallet wallet = findWalletWithLock(memberId);
         wallet.depositMoney(amount);
 
