@@ -6,7 +6,6 @@ import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
 import com.ureca.snac.config.AggregateExchangeMapper;
 import com.ureca.snac.config.RabbitMQQueue;
-import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -17,6 +16,7 @@ import com.ureca.snac.outbox.entity.OutboxStatus;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.support.IntegrationTestSupport;
 import com.ureca.snac.support.fixture.EventFixture;
@@ -146,11 +146,13 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
         @DisplayName("성공 : compensateCancellationFailure → Outbox → RabbitMQ → Listener → 보상 완료")
         void shouldCompleteCompensationChain() {
             // given: 충전 완료
+            String email = member.getEmail();
             String paymentKey = "e2e_pk_" + System.currentTimeMillis();
+
             MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                    new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+                    new MoneyRechargeRequest(RECHARGE_AMOUNT), email);
             mockTossConfirm(paymentKey);
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, email);
 
             Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
             PaymentCancelResponse cancelResponse = PaymentCancelResponseFixture.create(
@@ -190,11 +192,13 @@ class PaymentAsyncEventIntegrationTest extends IntegrationTestSupport {
      * CANCEL_REQUESTED + frozen 상태로 반환 (processCompensation이 CANCELED로 전환)
      */
     private Payment createCancelRequestedPayment() {
+        String email = member.getEmail();
         String paymentKey = "comp_pk_" + System.currentTimeMillis();
+
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), email);
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, email);
 
         Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
 

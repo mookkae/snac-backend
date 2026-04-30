@@ -2,7 +2,6 @@ package com.ureca.snac.integration;
 
 import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.TransactionCategory;
-import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -14,9 +13,10 @@ import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.exception.AlreadyUsedRechargeCannotCancelException;
 import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.exception.PaymentNotFoundException;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.service.PaymentService;
 import com.ureca.snac.support.IntegrationTestSupport;
-import com.ureca.snac.support.fixture.PaymentCancelResponseFixture;
 import com.ureca.snac.wallet.entity.Wallet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,7 +94,7 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
             mockTossConfirm(paymentKey);
 
             // when
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
 
             // then: Payment SUCCESS
             Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
@@ -122,11 +123,11 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
             String paymentKey = uniquePaymentKey();
             mockTossConfirm(paymentKey);
 
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
 
             // when, then: 두 번째 승인 -> PaymentAlreadySuccessException
             assertThatThrownBy(() ->
-                    moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId())
+                    moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail())
             ).isInstanceOf(PaymentAlreadySuccessException.class);
 
             // Wallet 잔액 1배만 반영
@@ -146,7 +147,7 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
 
             // when, then
             assertThatThrownBy(() ->
-                    moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId())
+                    moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail())
             ).isInstanceOf(RuntimeException.class);
 
             // Payment PENDING 유지
@@ -224,13 +225,13 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
     // ================= Helper ====================
 
     private MoneyRechargePreparedResponse prepareRecharge() {
-        return moneyService.prepareRecharge(new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+        return moneyService.prepareRecharge(new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
     }
 
     private void prepareAndCompleteRecharge(String paymentKey) {
         MoneyRechargePreparedResponse prepared = prepareRecharge();
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
     }
 
     private void mockTossConfirm(String paymentKey) {
@@ -240,7 +241,7 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
 
     private void mockTossCancel(String paymentKey) {
         given(paymentGatewayPort.cancelPayment(anyString(), anyString()))
-                .willReturn(new com.ureca.snac.payment.port.out.dto.PaymentCancelResult(paymentKey, RECHARGE_AMOUNT, java.time.OffsetDateTime.now(), "고객 요청"));
+                .willReturn(new PaymentCancelResult(paymentKey, RECHARGE_AMOUNT, OffsetDateTime.now(), "고객 요청"));
     }
 
     private String uniquePaymentKey() {

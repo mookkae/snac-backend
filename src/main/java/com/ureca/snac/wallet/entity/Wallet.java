@@ -19,6 +19,10 @@ public class Wallet extends BaseTimeEntity {
     @Column(name = "wallet_id")
     private Long id;
 
+    // [낙관락]
+    // @Version
+    // private Long version;
+
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "member_id", nullable = false, unique = true)
     private Member member;

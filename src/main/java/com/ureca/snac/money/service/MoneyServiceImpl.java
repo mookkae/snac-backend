@@ -2,6 +2,8 @@ package com.ureca.snac.money.service;
 
 import com.ureca.snac.common.exception.InternalServerException;
 import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
 import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.dto.MoneyRechargeSuccessResponse;
@@ -38,9 +40,15 @@ public class MoneyServiceImpl implements MoneyService {
     private final MoneyDepositorRetryFacade moneyDepositorRetryFacade;
     private final ApplicationEventPublisher eventPublisher;
     private final MeterRegistry meterRegistry;
+    private final MemberRepository memberRepository;
 
     @Override
-    public MoneyRechargePreparedResponse prepareRecharge(MoneyRechargeRequest request, Member member) {
+    public MoneyRechargePreparedResponse prepareRecharge(MoneyRechargeRequest request, String memberEmail) {
+        Member member = memberRepository.findByEmail(memberEmail)
+                .orElseThrow(() -> {
+                    log.error("[머니 충전 준비] 회원 조회 실패. email: {}", memberEmail);
+                    return new MemberNotFoundException();
+                });
 
         log.info("[머니 충전 준비] 시작. 회원 ID : {}, 요청 금액 : {}", member.getId(), request.amount());
 
@@ -67,7 +75,13 @@ public class MoneyServiceImpl implements MoneyService {
      */
     @Override
     public MoneyRechargeSuccessResponse processRechargeSuccess(
-            String paymentKey, String orderId, Long amount, Long memberId) {
+            String paymentKey, String orderId, Long amount, String memberEmail) {
+        Long memberId = memberRepository.findByEmail(memberEmail)
+                .orElseThrow(() -> {
+                    log.error("[머니 충전 처리] 회원 조회 실패. email: {}", memberEmail);
+                    return new MemberNotFoundException();
+                })
+                .getId();
 
         Timer.Sample sample = Timer.start(meterRegistry);
         String status = "success";

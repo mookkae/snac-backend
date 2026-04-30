@@ -1,8 +1,5 @@
 package com.ureca.snac.integration;
 
-import com.ureca.snac.common.exception.ExternalApiException;
-import com.ureca.snac.payment.port.out.PaymentGatewayPort;
-import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -10,6 +7,9 @@ import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.service.MoneyService;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
+import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
+import com.ureca.snac.payment.exception.PaymentNotFoundException;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
 import com.ureca.snac.payment.scheduler.PaymentReconciliationScheduler;
 import com.ureca.snac.payment.service.PaymentInternalService;
@@ -25,7 +25,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.LocalDateTime;
 
-import static com.ureca.snac.common.BaseCode.PAYMENT_GATEWAY_API_ERROR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -125,7 +124,7 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
             String orderId = stalePayment.getOrderId();
 
             given(paymentGatewayPort.inquirePaymentByOrderId(orderId))
-                    .willThrow(new com.ureca.snac.payment.exception.PaymentNotFoundException());
+                    .willThrow(new PaymentNotFoundException());
 
             // when
             scheduler.reconcileStalePayments();
@@ -195,11 +194,13 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
         @DisplayName("멱등성 : 이미 처리된 결제 -> Processor false 반환")
         void shouldSkipAlreadyProcessedPayment() {
             // given: 충전 완료 후 stale로 만들기 (SUCCESS 상태라 Processor가 false 반환)
+            String email = member.getEmail();
             String paymentKey = "pk_idem_" + System.currentTimeMillis();
+
             MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                    new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+                    new MoneyRechargeRequest(RECHARGE_AMOUNT), email);
             mockTossConfirm(paymentKey);
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, email);
 
             // Payment를 다시 PENDING으로 변경해서 스케줄러가 잡게 만들지 않음
             // 대신 createdAt을 과거로 -> 하지만 이미 SUCCESS라 Processor가 false 반환 확인
@@ -271,11 +272,12 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
 
     private Payment createStaleCancelRequestedPayment() {
         // 충전 완료 (SUCCESS 상태) -> CANCEL_REQUESTED + 머니 동결 (실제 취소 흐름 재현)
+        String email = member.getEmail();
         String paymentKey = "pk_cr_" + System.currentTimeMillis();
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), email);
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, email);
 
         Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
@@ -293,7 +295,7 @@ class PaymentSchedulerIntegrationTest extends IntegrationTestSupport {
 
     private Payment createStalePendingPayment() {
         MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
-                new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+                new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
 
         Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
 

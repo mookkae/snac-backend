@@ -2,7 +2,6 @@ package com.ureca.snac.integration;
 
 import com.ureca.snac.asset.entity.AssetHistory;
 import com.ureca.snac.asset.entity.TransactionCategory;
-import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.infra.fixture.TossResponseFixture;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
@@ -12,10 +11,11 @@ import com.ureca.snac.money.service.MoneyService;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
 import com.ureca.snac.payment.event.PaymentCancelCompensationEvent;
+import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.service.PaymentInternalService;
 import com.ureca.snac.payment.service.PaymentService;
 import com.ureca.snac.support.IntegrationTestSupport;
-import com.ureca.snac.support.fixture.PaymentCancelResponseFixture;
 import com.ureca.snac.wallet.entity.Wallet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,9 +30,8 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.fail;
-
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -85,7 +84,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
             runConcurrently(() -> {
                 try {
                     moneyService.processRechargeSuccess(
-                            paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+                            paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();
@@ -153,7 +152,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
             String paymentKey = "conc_comp_pk_" + System.currentTimeMillis();
             MoneyRechargePreparedResponse prepared = prepareRecharge();
             mockTossConfirm(paymentKey);
-            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
 
             // 실제 취소 흐름 재현: prepareForCancellation (CANCEL_REQUESTED + frozen)
             // processCompensation N건이 경쟁 → 1건만 CANCELED 전환, 나머지 early return
@@ -224,13 +223,13 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
     }
 
     private MoneyRechargePreparedResponse prepareRecharge() {
-        return moneyService.prepareRecharge(new MoneyRechargeRequest(RECHARGE_AMOUNT), member);
+        return moneyService.prepareRecharge(new MoneyRechargeRequest(RECHARGE_AMOUNT), member.getEmail());
     }
 
     private void prepareAndCompleteRecharge(String paymentKey) {
         MoneyRechargePreparedResponse prepared = prepareRecharge();
         mockTossConfirm(paymentKey);
-        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getId());
+        moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, member.getEmail());
     }
 
     private void mockTossConfirm(String paymentKey) {
@@ -240,6 +239,6 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
 
     private void mockTossCancel(String paymentKey) {
         given(paymentGatewayPort.cancelPayment(anyString(), anyString()))
-                .willReturn(new com.ureca.snac.payment.port.out.dto.PaymentCancelResult(paymentKey, RECHARGE_AMOUNT, java.time.OffsetDateTime.now(), "동시 취소 테스트"));
+                .willReturn(new PaymentCancelResult(paymentKey, RECHARGE_AMOUNT, OffsetDateTime.now(), "동시 취소 테스트"));
     }
 }
