@@ -4,20 +4,22 @@ import com.ureca.snac.common.exception.InternalServerException;
 import com.ureca.snac.infra.exception.TossInvalidCardInfoException;
 import com.ureca.snac.infra.exception.TossNotEnoughBalanceException;
 import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.money.dto.MoneyRechargePreparedResponse;
 import com.ureca.snac.money.dto.MoneyRechargeRequest;
 import com.ureca.snac.money.dto.MoneyRechargeSuccessResponse;
-import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.event.alert.AutoCancelFailureEvent;
 import com.ureca.snac.payment.exception.AlreadyCanceledPaymentException;
 import com.ureca.snac.payment.exception.PaymentAlreadySuccessException;
 import com.ureca.snac.payment.port.out.PaymentGatewayPort;
+import com.ureca.snac.payment.port.out.dto.GatewayPaymentStatus;
+import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
+import com.ureca.snac.payment.port.out.dto.PaymentInquiryResult;
 import com.ureca.snac.payment.port.out.exception.GatewayTransientException;
 import com.ureca.snac.payment.service.PaymentService;
 import com.ureca.snac.support.fixture.MemberFixture;
-import com.ureca.snac.support.fixture.PaymentCancelResponseFixture;
 import com.ureca.snac.support.fixture.PaymentFixture;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +31,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+
+import java.time.OffsetDateTime;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,11 +65,13 @@ class MoneyServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private MemberRepository memberRepository;
+
     private Member member;
     private Payment pendingPayment;
     private PaymentConfirmResult confirmResult;
-    private PaymentCancelResponse cancelResponse;
-    private com.ureca.snac.payment.port.out.dto.PaymentCancelResult cancelResult;
+    private PaymentCancelResult cancelResult;
 
     private static final String ORDER_ID = "snac_order_test_123";
     private static final String PAYMENT_KEY = "test_payment_key";
@@ -75,17 +82,17 @@ class MoneyServiceTest {
         meterRegistry = new SimpleMeterRegistry();
         moneyService = new MoneyServiceImpl(
                 paymentService, paymentGatewayPort,
-                moneyDepositorRetryFacade, eventPublisher, meterRegistry
+                moneyDepositorRetryFacade, eventPublisher, meterRegistry, memberRepository
         );
         member = MemberFixture.createMember(1L);
+        given(memberRepository.findByEmail(member.getEmail())).willReturn(Optional.of(member));
         pendingPayment = PaymentFixture.builder()
                 .id(1L)
                 .member(member)
                 .orderId(ORDER_ID)
                 .amount(AMOUNT)
                 .build();
-        confirmResult = new PaymentConfirmResult(PAYMENT_KEY, "카드", java.time.OffsetDateTime.now());
-        cancelResponse = PaymentCancelResponseFixture.create(PAYMENT_KEY, AMOUNT, "Auto-cancel");
+        confirmResult = new PaymentConfirmResult(PAYMENT_KEY, "카드", OffsetDateTime.now());
     }
 
     @Nested
@@ -105,8 +112,9 @@ class MoneyServiceTest {
 
             given(paymentService.preparePayment(member, AMOUNT)).willReturn(createdPayment);
 
+
             // when
-            MoneyRechargePreparedResponse response = moneyService.prepareRecharge(request, member);
+            MoneyRechargePreparedResponse response = moneyService.prepareRecharge(request, member.getEmail());
 
             // then
             assertThat(response).isNotNull();
@@ -135,7 +143,7 @@ class MoneyServiceTest {
                         .willReturn(confirmResult);
 
                 // when
-                moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId());
+                moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail());
 
                 // then
                 verify(paymentGatewayPort, times(1))
@@ -152,20 +160,18 @@ class MoneyServiceTest {
                 // given
                 given(paymentService.findAndValidateForConfirmation(ORDER_ID, AMOUNT, member.getId()))
                         .willReturn(pendingPayment);
-                
+
                 // 1. 토스가 이미 처리됨 (재요청)
                 given(paymentGatewayPort.confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT))
                         .willThrow(new PaymentAlreadySuccessException());
-                
+
                 // 2. 조회 API로 상태 확인
-                com.ureca.snac.payment.port.out.dto.PaymentInquiryResult inquiryResult = 
-                        new com.ureca.snac.payment.port.out.dto.PaymentInquiryResult(
-                                com.ureca.snac.payment.port.out.dto.GatewayPaymentStatus.DONE,
-                                PAYMENT_KEY, ORDER_ID, AMOUNT, "카드", java.time.OffsetDateTime.now());
+                PaymentInquiryResult inquiryResult =
+                        new PaymentInquiryResult(GatewayPaymentStatus.DONE, PAYMENT_KEY, ORDER_ID, AMOUNT, "카드", OffsetDateTime.now());
                 given(paymentGatewayPort.inquirePaymentByOrderId(ORDER_ID)).willReturn(inquiryResult);
 
                 // when
-                moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId());
+                moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail());
 
                 // then
                 verify(paymentGatewayPort).confirmPayment(PAYMENT_KEY, ORDER_ID, AMOUNT);
@@ -189,7 +195,7 @@ class MoneyServiceTest {
 
                 // when, then
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(PaymentAlreadySuccessException.class);
 
                 // 외부 API 호출 안 함
@@ -207,7 +213,7 @@ class MoneyServiceTest {
 
                 // when, then
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(IllegalArgumentException.class);
 
                 // 외부 API 호출 안 함
@@ -225,7 +231,7 @@ class MoneyServiceTest {
 
                 // when, then
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(IllegalArgumentException.class);
 
                 // 외부 API 호출 안 함
@@ -245,7 +251,7 @@ class MoneyServiceTest {
 
                 // when & then: 예외 전파
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(GatewayTransientException.class);
 
                 // Toss 승인 실패 -> 취소 불필요
@@ -266,7 +272,7 @@ class MoneyServiceTest {
 
                 // when: 예외 없이 성공 응답 반환
                 MoneyRechargeSuccessResponse response =
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId());
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail());
 
                 // then: Auto-Cancel 미호출, 성공 응답
                 assertThat(response.orderId()).isEqualTo(ORDER_ID);
@@ -297,7 +303,7 @@ class MoneyServiceTest {
 
                 // when, then
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(Exception.class);
 
                 // Auto-Cancel 호출 확인 (Toss 승인 성공 후 DB 실패 -> 자동 취소)
@@ -317,7 +323,7 @@ class MoneyServiceTest {
 
                 // when & then: 예외 발생, cancelPayment 호출 안 됨
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(TossInvalidCardInfoException.class);
 
                 // Toss 승인 실패 -> 취소 불필요 (돈 안 빠짐)
@@ -336,7 +342,7 @@ class MoneyServiceTest {
 
                 // when & then: 예외 발생, cancelPayment 호출 안 됨
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(TossNotEnoughBalanceException.class);
 
                 // Toss 승인 실패 -> 취소 불필요 (돈 안 빠짐)
@@ -357,7 +363,7 @@ class MoneyServiceTest {
 
                 // when & then: InternalServerException 발생 + Toss Auto-Cancel 호출
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(InternalServerException.class);
 
                 verify(paymentGatewayPort, times(1)).cancelPayment(eq(PAYMENT_KEY), anyString());
@@ -380,7 +386,7 @@ class MoneyServiceTest {
 
                 // when & then: InternalServerException 발생
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(InternalServerException.class);
 
                 // Toss + 로컬 DB 모두 정상 취소 상태 -> Critical Alert 미발행
@@ -407,7 +413,7 @@ class MoneyServiceTest {
 
                 // when & then: 예외 발생
                 assertThatThrownBy(() ->
-                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getId())
+                        moneyService.processRechargeSuccess(PAYMENT_KEY, ORDER_ID, AMOUNT, member.getEmail())
                 ).isInstanceOf(Exception.class);
 
                 // Critical: Auto-Cancel 실패 -> AutoCancelFailureEvent 발행
