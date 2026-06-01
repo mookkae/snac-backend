@@ -77,7 +77,7 @@ public class WalletServiceImpl implements WalletService {
         // [낙관락] 락 없이 조회 @Version으로 커밋 시점에 충돌 감지
         // Wallet wallet = findWallet(memberId);
         // [비관락] FOR UPDATE로 조회 직렬화 보장
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.depositMoney(amount);
 
         long finalBalance = wallet.getMoneyBalance();
@@ -92,7 +92,7 @@ public class WalletServiceImpl implements WalletService {
     public long withdrawMoney(Long memberId, long amount) {
         log.info("[머니 출금] 시작. 회원 ID: {}, 출금액: {}", memberId, amount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.withdrawMoney(amount);
 
         long finalBalance = wallet.getMoneyBalance();
@@ -107,7 +107,7 @@ public class WalletServiceImpl implements WalletService {
     public long depositPoint(Long memberId, long amount) {
         log.info("[포인트 적립] 시작. 회원 ID: {}, 적립액: {}", memberId, amount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.depositPoint(amount);
 
         long finalBalance = wallet.getPointBalance();
@@ -122,7 +122,7 @@ public class WalletServiceImpl implements WalletService {
     public CompositeBalanceResult moveCompositeToEscrow(Long memberId, long moneyAmount, long pointAmount) {
         log.info("[복합 에스크로 이동] 시작. 회원 ID: {}, 머니: {}, 포인트: {}", memberId, moneyAmount, pointAmount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.moveCompositeToEscrow(moneyAmount, pointAmount);
 
         CompositeBalanceResult result = CompositeBalanceResult.from(wallet);
@@ -138,7 +138,7 @@ public class WalletServiceImpl implements WalletService {
     public CompositeBalanceResult cancelCompositeEscrow(Long memberId, long moneyAmount, long pointAmount) {
         log.info("[복합 에스크로 복원] 시작. 회원 ID: {}, 머니: {}, 포인트: {}", memberId, moneyAmount, pointAmount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.cancelCompositeEscrow(moneyAmount, pointAmount);
 
         CompositeBalanceResult result = CompositeBalanceResult.from(wallet);
@@ -154,7 +154,7 @@ public class WalletServiceImpl implements WalletService {
     public CompositeBalanceResult deductCompositeEscrow(Long memberId, long moneyAmount, long pointAmount) {
         log.info("[복합 에스크로 차감] 시작. 회원 ID : {}, 머니 : {}, 포인트 : {}", memberId, moneyAmount, pointAmount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.deductCompositeEscrow(moneyAmount, pointAmount);
 
         CompositeBalanceResult result = CompositeBalanceResult.from(wallet);
@@ -170,7 +170,7 @@ public class WalletServiceImpl implements WalletService {
     public long freezeMoney(Long memberId, long amount) {
         log.info("[머니 동결] 시작. 회원 ID: {}, 동결액: {}", memberId, amount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.freezeMoney(amount);
 
         long balanceAfter = wallet.getMoneyBalance();
@@ -185,7 +185,7 @@ public class WalletServiceImpl implements WalletService {
     public long unfreezeMoney(Long memberId, long amount) {
         log.info("[머니 동결 해제] 시작. 회원 ID: {}, 해제액: {}", memberId, amount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.unfreezeMoney(amount);
 
         long balanceAfter = wallet.getMoneyBalance();
@@ -200,7 +200,7 @@ public class WalletServiceImpl implements WalletService {
     public long deductFrozenMoney(Long memberId, long amount) {
         log.info("[동결 머니 차감] 시작. 회원 ID: {}, 차감액: {}", memberId, amount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findWallet(memberId);
         wallet.deductFrozenMoney(amount);
 
         long balanceAfter = wallet.getMoneyBalance();
