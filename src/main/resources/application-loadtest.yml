@@ -6,6 +6,16 @@ server:
     threads:
       max: 100
 
+# Timer 메트릭 histogram bucket 발행 (PromQL histogram_quantile 사용)
+# 키 이름은 Timer.builder() 의 메트릭 ID와 동일해야 함 (underscore 그대로)
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        payment_approval_duration: true
+        db_depositor_duration: true
+        retry_total_duration: true
+
 spring:
   main:
     allow-bean-definition-overriding: true
@@ -24,7 +34,15 @@ payments:
 loadtest:
   fault:
     deposit-failure-rate: 0.0     # 기본 비활성. Performance Test 시 JVM 인자로 활성화: -Dloadtest.fault.deposit-failure-rate=0.10
+    deposit-failure-type: runtime # runtime(기본, 즉시 Auto-Cancel) | transient(재시도 검증용 TransientDataAccessResourceException)
     cancel-failure-rate: 0.0      # 기본 비활성. Performance Test 시 JVM 인자로 활성화: -Dloadtest.fault.cancel-failure-rate=0.02
+
+# 재시도 설정
+retry:
+  depositor:
+    max-attempts: 4               # 1~5 비교 실험 최적값
+    delay: 500                    # 첫 백오프 (ms)
+    multiplier: 2.0               # 지수 백오프 배수
 
 # 대사 스케줄러 부하 테스트에서 빠르게 동작하도록 조정
 reconciliation:

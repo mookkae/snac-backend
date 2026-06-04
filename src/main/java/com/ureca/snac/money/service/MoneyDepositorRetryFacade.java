@@ -1,6 +1,8 @@
 package com.ureca.snac.money.service;
 
 import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.retry.annotation.Backoff;
@@ -24,19 +26,29 @@ import org.springframework.stereotype.Service;
 public class MoneyDepositorRetryFacade {
 
     private final MoneyDepositor moneyDepositor;
+    private final MeterRegistry meterRegistry;
 
     @Retryable(
             // [낙관락]
             // MoneyDepositor.deposit() 커밋 시점에 예외 발생
             // depositMoney()의 @Retryable은 외부 트랜잭션 합류로 동작 안 하므로 Facade 레벨에서 처리
             // retryFor = {TransientDataAccessException.class, ObjectOptimisticLockingFailureException.class},
-            // listeners = "walletRetryListener",
+            listeners = "moneyDepositorRetryListener",
             retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.depositor.max-attempts:5}",
             backoff = @Backoff(delayExpression = "${retry.depositor.delay:50}",
                     multiplierExpression = "${retry.depositor.multiplier:2.0}")
     )
     public void deposit(Long paymentId, Long memberId, PaymentConfirmResult confirmResult) {
-        moneyDepositor.deposit(paymentId, memberId, confirmResult);
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String outcome = "success";
+        try {
+            moneyDepositor.deposit(paymentId, memberId, confirmResult);
+        } catch (Throwable t) {
+            outcome = "fail";
+            throw t;
+        } finally {
+            sample.stop(meterRegistry.timer("db_depositor_duration", "outcome", outcome));
+        }
     }
 }
