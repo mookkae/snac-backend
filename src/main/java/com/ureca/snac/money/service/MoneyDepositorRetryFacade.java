@@ -30,7 +30,7 @@ public class MoneyDepositorRetryFacade {
             // MoneyDepositor.deposit() 커밋 시점에 예외 발생
             // depositMoney()의 @Retryable은 외부 트랜잭션 합류로 동작 안 하므로 Facade 레벨에서 처리
             // retryFor = {TransientDataAccessException.class, ObjectOptimisticLockingFailureException.class},
-            // listeners = "walletRetryListener",
+            listeners = "moneyDepositorRetryListener",
             retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.depositor.max-attempts:5}",
             backoff = @Backoff(delayExpression = "${retry.depositor.delay:50}",
