@@ -48,9 +48,7 @@ public class MoneyDepositorRetryFacade {
             outcome = "fail";
             throw t;
         } finally {
-            sample.stop(Timer.builder("db_depositor_duration")
-                    .tag("outcome", outcome)
-                    .register(meterRegistry));
+            sample.stop(meterRegistry.timer("db_depositor_duration", "outcome", outcome));
         }
     }
 }

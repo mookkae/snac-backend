@@ -1,7 +1,6 @@
 package com.ureca.snac.money.service;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.retry.RetryCallback;
 import org.springframework.retry.RetryContext;
@@ -44,9 +43,7 @@ public class MoneyDepositorRetryListener implements RetryListener {
         Object start = context.getAttribute(START_NANOS_KEY);
         if (start instanceof Long startNanos) {
             long durationNanos = System.nanoTime() - startNanos;
-            Timer.builder("retry_total_duration")
-                    .tag("outcome", throwable == null ? "success" : "exhausted")
-                    .register(meterRegistry)
+            meterRegistry.timer("retry_total_duration", "outcome", throwable == null ? "success" : "exhausted")
                     .record(durationNanos, TimeUnit.NANOSECONDS);
         }
 
