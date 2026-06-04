@@ -1,6 +1,8 @@
 package com.ureca.snac.money.service;
 
 import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.retry.annotation.Backoff;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Service;
 public class MoneyDepositorRetryFacade {
 
     private final MoneyDepositor moneyDepositor;
+    private final MeterRegistry meterRegistry;
 
     @Retryable(
             // [낙관락]
@@ -37,6 +40,17 @@ public class MoneyDepositorRetryFacade {
                     multiplierExpression = "${retry.depositor.multiplier:2.0}")
     )
     public void deposit(Long paymentId, Long memberId, PaymentConfirmResult confirmResult) {
-        moneyDepositor.deposit(paymentId, memberId, confirmResult);
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String outcome = "success";
+        try {
+            moneyDepositor.deposit(paymentId, memberId, confirmResult);
+        } catch (Throwable t) {
+            outcome = "fail";
+            throw t;
+        } finally {
+            sample.stop(Timer.builder("db_depositor_duration")
+                    .tag("outcome", outcome)
+                    .register(meterRegistry));
+        }
     }
 }

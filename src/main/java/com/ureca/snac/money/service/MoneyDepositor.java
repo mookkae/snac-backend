@@ -10,8 +10,6 @@ import com.ureca.snac.payment.exception.UnsupportedPaymentMethodException;
 import com.ureca.snac.payment.port.out.dto.PaymentConfirmResult;
 import com.ureca.snac.payment.repository.PaymentRepository;
 import com.ureca.snac.wallet.service.WalletService;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,45 +31,33 @@ public class MoneyDepositor {
     private final MoneyRechargeRepository moneyRechargeRepository;
     private final WalletService walletService;
     private final AssetRecorder assetRecorder;
-    private final MeterRegistry meterRegistry;
 
     @Transactional
     public void deposit(Long paymentId, Long memberId, PaymentConfirmResult confirmResult) {
-        Timer.Sample sample = Timer.start(meterRegistry);
-        String outcome = "success";
-        try {
-            log.info("[머니 입금 처리] DB 상태 변경 시작. paymentId : {}", paymentId);
+        log.info("[머니 입금 처리] DB 상태 변경 시작. paymentId : {}", paymentId);
 
-            // FOR UPDATE 락으로 Payment 재조회
-            Payment lockedPayment = paymentRepository.findByIdForUpdate(paymentId)
-                    .orElseThrow(PaymentNotFoundException::new);
+        // FOR UPDATE 락으로 Payment 재조회
+        Payment lockedPayment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(PaymentNotFoundException::new);
 
-            PaymentMethod method = PaymentMethod.fromTossMethod(confirmResult.method());
-            if (method == PaymentMethod.UNKNOWN) {
-                log.error("[머니 입금 처리] 알 수 없는 결제 수단. paymentId: {}, method: {}",
-                        paymentId, confirmResult.method());
-                throw new UnsupportedPaymentMethodException();
-            }
-
-            lockedPayment.complete(confirmResult.paymentKey(), method, confirmResult.approvedAt());
-            log.info("[머니 입금 처리] Payment 엔티티 SUCCESS 변경 완료");
-
-            MoneyRecharge recharge = MoneyRecharge.create(lockedPayment);
-            moneyRechargeRepository.save(recharge);
-            log.info("[머니 입금 처리] MoneyRecharge 기록 생성 완료. rechargeId : {}", recharge.getId());
-
-            Long balanceAfter = walletService.depositMoney(memberId, lockedPayment.getAmount());
-            log.info("[머니 입금 처리] 지갑 머니 입금 완료. memberId : {} , 최종 잔액 : {}", memberId, balanceAfter);
-
-            assetRecorder.recordMoneyRecharge(memberId, lockedPayment.getId(), recharge.getPaidAmountWon(), balanceAfter);
-            log.info("[머니 입금 처리] 자산 변동 기록 직접 저장 완료.");
-        } catch (Throwable t) {
-            outcome = "fail";
-            throw t;
-        } finally {
-            sample.stop(Timer.builder("db_depositor_duration")
-                    .tag("outcome", outcome)
-                    .register(meterRegistry));
+        PaymentMethod method = PaymentMethod.fromTossMethod(confirmResult.method());
+        if (method == PaymentMethod.UNKNOWN) {
+            log.error("[머니 입금 처리] 알 수 없는 결제 수단. paymentId: {}, method: {}",
+                    paymentId, confirmResult.method());
+            throw new UnsupportedPaymentMethodException();
         }
+
+        lockedPayment.complete(confirmResult.paymentKey(), method, confirmResult.approvedAt());
+        log.info("[머니 입금 처리] Payment 엔티티 SUCCESS 변경 완료");
+
+        MoneyRecharge recharge = MoneyRecharge.create(lockedPayment);
+        moneyRechargeRepository.save(recharge);
+        log.info("[머니 입금 처리] MoneyRecharge 기록 생성 완료. rechargeId : {}", recharge.getId());
+
+        Long balanceAfter = walletService.depositMoney(memberId, lockedPayment.getAmount());
+        log.info("[머니 입금 처리] 지갑 머니 입금 완료. memberId : {} , 최종 잔액 : {}", memberId, balanceAfter);
+
+        assetRecorder.recordMoneyRecharge(memberId, lockedPayment.getId(), recharge.getPaidAmountWon(), balanceAfter);
+        log.info("[머니 입금 처리] 자산 변동 기록 직접 저장 완료.");
     }
 }
