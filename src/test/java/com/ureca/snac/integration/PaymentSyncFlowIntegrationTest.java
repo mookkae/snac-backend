@@ -172,7 +172,7 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
             mockTossCancel(paymentKey);
 
             // when
-            paymentService.cancelPayment(paymentKey, "고객 요청", member.getId());
+            paymentService.cancelPayment(paymentKey, "고객 요청", member.getEmail());
 
             // then: Payment CANCELED
             Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
@@ -204,7 +204,7 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
 
             // when, then
             assertThatThrownBy(() ->
-                    paymentService.cancelPayment(paymentKey, "고객 요청", member.getId())
+                    paymentService.cancelPayment(paymentKey, "고객 요청", member.getEmail())
             ).isInstanceOf(AlreadyUsedRechargeCannotCancelException.class);
 
             // Payment SUCCESS 유지
@@ -217,7 +217,7 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
         void shouldThrowWhenPaymentNotFound() {
             // when, then
             assertThatThrownBy(() ->
-                    paymentService.cancelPayment("nonexistent_pk", "고객 요청", member.getId())
+                    paymentService.cancelPayment("nonexistent_pk", "고객 요청", member.getEmail())
             ).isInstanceOf(PaymentNotFoundException.class);
         }
     }

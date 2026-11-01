@@ -218,13 +218,17 @@ public class WalletServiceImpl implements WalletService {
     }
 
     @Override
-    public WalletAvailableBalanceResponse getWalletSummary(Long memberId) {
-        log.info("[지갑 요약 조회] 시작. 회원 ID : {}", memberId);
+    public WalletAvailableBalanceResponse getWalletSummary(String email) {
+        log.info("[지갑 요약 조회] 시작. 이메일 : {}", email);
 
-        Wallet wallet = findWallet(memberId);
+        Wallet wallet = walletRepository.findByMemberEmail(email)
+                .orElseThrow(() -> {
+                    log.error("[지갑 요약 조회] 지갑을 찾을 수 없음. 이메일 : {}", email);
+                    return new WalletNotFoundException();
+                });
 
         WalletAvailableBalanceResponse response = WalletAvailableBalanceResponse.from(wallet);
-        log.info("[지갑 요약 조회] 완료. 회원 ID : {}", memberId);
+        log.info("[지갑 요약 조회] 완료. 이메일 : {}", email);
 
         return response;
     }

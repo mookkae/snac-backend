@@ -564,11 +564,11 @@ class WalletServiceTest {
             Wallet wallet = WalletFixture.createWalletWithBalance(member, 10000L, 3000L);
             wallet.moveCompositeToEscrow(2000L, 1000L);
 
-            given(walletRepository.findByMemberId(1L))
+            given(walletRepository.findByMemberEmail(member.getEmail()))
                     .willReturn(Optional.of(wallet));
 
             // when
-            WalletAvailableBalanceResponse response = walletService.getWalletSummary(1L);
+            WalletAvailableBalanceResponse response = walletService.getWalletSummary(member.getEmail());
 
             // then
             assertThat(response.moneyBalance()).isEqualTo(8000L);
@@ -579,11 +579,11 @@ class WalletServiceTest {
         @DisplayName("예외 : getWalletSummary - 지갑 없으면 WalletNotFoundException")
         void getWalletSummary_walletNotFound_shouldThrow() {
             // given
-            given(walletRepository.findByMemberId(999L))
+            given(walletRepository.findByMemberEmail("none@test.com"))
                     .willReturn(Optional.empty());
 
             // when & then
-            assertThatThrownBy(() -> walletService.getWalletSummary(999L))
+            assertThatThrownBy(() -> walletService.getWalletSummary("none@test.com"))
                     .isInstanceOf(WalletNotFoundException.class);
         }
     }

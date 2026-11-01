@@ -2,6 +2,8 @@ package com.ureca.snac.payment.service;
 
 import com.ureca.snac.common.exception.ExternalApiException;
 import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.entity.Payment;
 import com.ureca.snac.payment.entity.PaymentStatus;
@@ -57,6 +59,9 @@ class PaymentServiceTest {
     @Mock
     private PaymentAlertNotifier paymentAlertNotifier;
 
+    @Mock
+    private MemberRepository memberRepository;
+
     private Member member;
     private Payment successPayment;
     private PaymentCancelResponse cancelResponse;
@@ -73,7 +78,7 @@ class PaymentServiceTest {
         paymentService = new PaymentServiceImpl(
                 paymentRepository, paymentGatewayPort,
                 paymentInternalService, paymentAlertNotifier, meterRegistry,
-                Clock.systemDefaultZone()
+                Clock.systemDefaultZone(), memberRepository
         );
         member = MemberFixture.createMember(1L);
         successPayment = PaymentFixture.createSuccessPayment(member);
@@ -113,13 +118,15 @@ class PaymentServiceTest {
         @DisplayName("정상 : 토스 취소 -> DB 처리 모두 성공")
         void cancelPayment_HappyPath() {
             // given
+            given(memberRepository.findByEmail(member.getEmail()))
+                    .willReturn(Optional.of(member));
             given(paymentRepository.findByPaymentKeyWithMember(PAYMENT_KEY))
                     .willReturn(Optional.of(successPayment));
             given(paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
                     .willReturn(cancelResult);
 
             // when
-            paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getId());
+            paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getEmail());
 
             // then
             verify(paymentInternalService, times(1))
@@ -138,6 +145,8 @@ class PaymentServiceTest {
         @DisplayName("보상 처리 : 토스 취소 성공 + DB 실패 시 보상 처리 호출")
         void cancelPayment_DBFailure_CompensationTriggered() {
             // given
+            given(memberRepository.findByEmail(member.getEmail()))
+                    .willReturn(Optional.of(member));
             given(paymentRepository.findByPaymentKeyWithMember(PAYMENT_KEY))
                     .willReturn(Optional.of(successPayment));
             given(paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
@@ -149,7 +158,7 @@ class PaymentServiceTest {
 
             // when, then
             assertThatThrownBy(() ->
-                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getId())
+                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getEmail())
             ).isInstanceOf(RuntimeException.class)
                     .hasMessage("DB Connection Failed");
 
@@ -171,13 +180,15 @@ class PaymentServiceTest {
         @DisplayName("Fail-Safe : GatewayTransientException -> frozen 유지, 취소 처리 중 응답 반환 (processCancellationInDB 미호출)")
         void cancelPayment_TossRetryableException_KeepsFrozenAndReturnsProcessing() {
             // given
+            given(memberRepository.findByEmail(member.getEmail()))
+                    .willReturn(Optional.of(member));
             given(paymentRepository.findByPaymentKeyWithMember(PAYMENT_KEY))
                     .willReturn(Optional.of(successPayment));
             given(paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
                     .willThrow(new GatewayTransientException(new RuntimeException("timeout")));
 
             // when
-            PaymentCancelResponse result = paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getId());
+            PaymentCancelResponse result = paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getEmail());
 
             // then: 취소 처리 중 응답 반환
             assertThat(result.processing()).isTrue();
@@ -197,6 +208,8 @@ class PaymentServiceTest {
         @DisplayName("Fail-Safe : 분류되지 않은 예외 -> frozen 유지, processing 응답 반환 (예외 전파 안 함)")
         void cancelPayment_UnclassifiedException_KeepsFrozenAndReturnsProcessing() {
             // given
+            given(memberRepository.findByEmail(member.getEmail()))
+                    .willReturn(Optional.of(member));
             given(paymentRepository.findByPaymentKeyWithMember(PAYMENT_KEY))
                     .willReturn(Optional.of(successPayment));
             given(paymentGatewayPort.cancelPayment(PAYMENT_KEY, CANCEL_REASON))
@@ -204,7 +217,7 @@ class PaymentServiceTest {
                             com.ureca.snac.common.BaseCode.PAYMENT_GATEWAY_API_ERROR, "네트워크 오류"));
 
             // when: Fail-Safe — 예외 전파 없이 processing 응답 반환
-            PaymentCancelResponse response = paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getId());
+            PaymentCancelResponse response = paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getEmail());
 
             // then: processing 상태 응답
             assertThat(response.processing()).isTrue();
@@ -219,6 +232,8 @@ class PaymentServiceTest {
         @DisplayName("예외 : 잔액 부족 시 취소 불가 (AlreadyUsedRechargeCannotCancelException)")
         void cancelPayment_InsufficientBalance_ThrowsException() {
             // given : prepareForCancellation이 InsufficientBalanceException 발생 -> AlreadyUsedRechargeCannotCancelException으로 변환
+            given(memberRepository.findByEmail(member.getEmail()))
+                    .willReturn(Optional.of(member));
             given(paymentRepository.findByPaymentKeyWithMember(PAYMENT_KEY))
                     .willReturn(Optional.of(successPayment));
             doThrow(new InsufficientBalanceException())
@@ -226,7 +241,7 @@ class PaymentServiceTest {
 
             // when, then
             assertThatThrownBy(() ->
-                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getId())
+                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getEmail())
             ).isInstanceOf(AlreadyUsedRechargeCannotCancelException.class);
 
             // 외부 API 호출 안 함
@@ -238,14 +253,32 @@ class PaymentServiceTest {
         @DisplayName("실패 : 결제 없음 -> PaymentNotFoundException")
         void cancelPayment_PaymentNotFound_ThrowsException() {
             // given
+            given(memberRepository.findByEmail(member.getEmail()))
+                    .willReturn(Optional.of(member));
             given(paymentRepository.findByPaymentKeyWithMember(PAYMENT_KEY))
                     .willReturn(Optional.empty());
 
             // when, then
             assertThatThrownBy(() ->
-                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getId())
+                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, member.getEmail())
             ).isInstanceOf(PaymentNotFoundException.class);
 
+            verify(paymentGatewayPort, never()).cancelPayment(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("실패 : 회원 없음 -> MemberNotFoundException")
+        void cancelPayment_MemberNotFound_ThrowsException() {
+            // given
+            given(memberRepository.findByEmail("none@test.com"))
+                    .willReturn(Optional.empty());
+
+            // when, then
+            assertThatThrownBy(() ->
+                    paymentService.cancelPayment(PAYMENT_KEY, CANCEL_REASON, "none@test.com")
+            ).isInstanceOf(MemberNotFoundException.class);
+
+            verify(paymentRepository, never()).findByPaymentKeyWithMember(anyString());
             verify(paymentGatewayPort, never()).cancelPayment(anyString(), anyString());
         }
     }
