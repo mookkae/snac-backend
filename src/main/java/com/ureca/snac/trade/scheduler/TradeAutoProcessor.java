@@ -3,7 +3,6 @@ package com.ureca.snac.trade.scheduler;
 import com.ureca.snac.member.Activated;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.member.repository.MemberRepository;
-import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.entity.TradeStatus;
 import com.ureca.snac.trade.repository.TradeRepository;
 import jakarta.transaction.Transactional;
@@ -35,14 +34,14 @@ public class TradeAutoProcessor {
     public void refundIfSellerNoSend() {
         LocalDateTime limit = LocalDateTime.now().minus(48, ChronoUnit.HOURS);
 
-        List<Trade> trades = tradeRepo
-                .findByStatusAndUpdatedAtBefore(TradeStatus.PAYMENT_CONFIRMED, limit);
+        List<Long> tradeIds = tradeRepo
+                .findIdsByStatusAndUpdatedAtBefore(TradeStatus.PAYMENT_CONFIRMED, limit);
 
-        trades.forEach(trade -> {
+        tradeIds.forEach(tradeId -> {
             try {
-                tradeAutoItemProcessor.processRefund(trade);
+                tradeAutoItemProcessor.processRefund(tradeId);
             } catch (Exception e) {
-                log.error("[자동 환불 처리 실패, 다음 건 계속] tradeId: {}", trade.getId(), e);
+                log.error("[자동 환불 처리 실패, 다음 건 계속] tradeId: {}", tradeId, e);
             }
         });
     }
@@ -55,14 +54,14 @@ public class TradeAutoProcessor {
     public void payoutIfBuyerNoConfirm() {
         LocalDateTime limit = LocalDateTime.now().minus(48, ChronoUnit.HOURS);
 
-        List<Trade> trades = tradeRepo
-                .findByStatusAndUpdatedAtBeforeAndAutoConfirmPausedFalse(TradeStatus.DATA_SENT, limit);
+        List<Long> tradeIds = tradeRepo
+                .findIdsByStatusAndUpdatedAtBeforeAndAutoConfirmPausedFalse(TradeStatus.DATA_SENT, limit);
 
-        trades.forEach(trade -> {
+        tradeIds.forEach(tradeId -> {
             try {
-                tradeAutoItemProcessor.processPayout(trade);
+                tradeAutoItemProcessor.processPayout(tradeId);
             } catch (Exception e) {
-                log.error("[자동 정산 처리 실패, 다음 건 계속] tradeId: {}", trade.getId(), e);
+                log.error("[자동 정산 처리 실패, 다음 건 계속] tradeId: {}", tradeId, e);
             }
         });
     }

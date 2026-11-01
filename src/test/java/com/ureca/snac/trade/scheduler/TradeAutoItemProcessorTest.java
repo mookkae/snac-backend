@@ -8,6 +8,7 @@ import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.fixture.CardFixture;
 import com.ureca.snac.trade.fixture.TradeFixture;
+import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.TradeAlertService;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
 import com.ureca.snac.wallet.dto.CompositeBalanceResult;
@@ -41,6 +42,9 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
 
     @Autowired
     private TradeAutoItemProcessor tradeAutoItemProcessor;
+
+    @MockitoBean
+    private TradeRepository tradeRepository;
 
     @MockitoBean
     private CardRepository cardRepository;
@@ -85,6 +89,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
             void processRefund_shouldRetry3TimesAndSendSlackOnExhaustion() {
                 // given
                 Trade trade = TradeFixture.createPaymentConfirmedTrade(TRADE_ID, buyer, seller, CARD_ID, PRICE);
+                given(tradeRepository.findLockedById(TRADE_ID)).willReturn(Optional.of(trade));
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
@@ -93,7 +98,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                         });
 
                 // when — @Recover가 예외를 삼키므로 정상 반환
-                tradeAutoItemProcessor.processRefund(trade);
+                tradeAutoItemProcessor.processRefund(TRADE_ID);
 
                 // then
                 verify(walletService, times(3)).cancelCompositeEscrow(anyLong(), anyLong(), anyLong());
@@ -105,6 +110,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
             void processRefund_shouldSucceedOnThirdAttempt() {
                 // given
                 Trade trade = TradeFixture.createPaymentConfirmedTrade(TRADE_ID, buyer, seller, CARD_ID, PRICE);
+                given(tradeRepository.findLockedById(TRADE_ID)).willReturn(Optional.of(trade));
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
@@ -116,7 +122,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                         .willReturn(new CompositeBalanceResult(PRICE, 0L, 0L, 0L));
 
                 // when
-                tradeAutoItemProcessor.processRefund(trade);
+                tradeAutoItemProcessor.processRefund(TRADE_ID);
 
                 // then
                 verify(walletService, times(3)).cancelCompositeEscrow(anyLong(), anyLong(), anyLong());
@@ -138,6 +144,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
             void processPayout_shouldRetry3TimesAndSendSlackOnExhaustion() {
                 // given
                 Trade trade = TradeFixture.createDataSentTrade(TRADE_ID, buyer, seller, CARD_ID, PRICE);
+                given(tradeRepository.findLockedById(TRADE_ID)).willReturn(Optional.of(trade));
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
@@ -146,7 +153,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                         });
 
                 // when — @Recover가 예외를 삼키므로 정상 반환
-                tradeAutoItemProcessor.processPayout(trade);
+                tradeAutoItemProcessor.processPayout(TRADE_ID);
 
                 // then
                 verify(walletService, times(3)).deductCompositeEscrow(anyLong(), anyLong(), anyLong());
@@ -158,6 +165,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
             void processPayout_shouldSucceedOnThirdAttempt() {
                 // given
                 Trade trade = TradeFixture.createDataSentTrade(TRADE_ID, buyer, seller, CARD_ID, PRICE);
+                given(tradeRepository.findLockedById(TRADE_ID)).willReturn(Optional.of(trade));
                 willAnswer(inv -> Optional.of(
                         CardFixture.createTradingCard(CARD_ID, seller, PRICE)
                 )).given(cardRepository).findLockedById(anyLong());
@@ -170,7 +178,7 @@ class TradeAutoItemProcessorTest extends RetryTestSupport {
                 given(walletService.depositMoney(anyLong(), anyLong())).willReturn(15000L);
 
                 // when
-                tradeAutoItemProcessor.processPayout(trade);
+                tradeAutoItemProcessor.processPayout(TRADE_ID);
 
                 // then
                 verify(walletService, times(3)).deductCompositeEscrow(anyLong(), anyLong(), anyLong());
