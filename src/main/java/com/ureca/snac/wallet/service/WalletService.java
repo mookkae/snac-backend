@@ -34,5 +34,6 @@ public interface WalletService {
     long getMoneyBalance(Long memberId);
 
     // 특정 회원의 지갑 요약 정보(머니, 포인트 잔액) 조회
-    WalletAvailableBalanceResponse getWalletSummary(Long memberId);
+    // JWT 인증 주체에는 회원 ID가 없어 이메일로 조회한다
+    WalletAvailableBalanceResponse getWalletSummary(String email);
 }

@@ -18,8 +18,7 @@ public class WalletController implements WalletSwagger {
 
     @Override
     public ResponseEntity<ApiResponse<WalletAvailableBalanceResponse>> getMyWalletSummary(CustomUserDetails userDetails) {
-        Long memberId = userDetails.getMember().getId();
-        WalletAvailableBalanceResponse responseDto = walletService.getWalletSummary(memberId);
+        WalletAvailableBalanceResponse responseDto = walletService.getWalletSummary(userDetails.getUsername());
 
         return ResponseEntity.ok(ApiResponse.of(WALLET_SUMMARY_SUCCESS, responseDto));
     }
