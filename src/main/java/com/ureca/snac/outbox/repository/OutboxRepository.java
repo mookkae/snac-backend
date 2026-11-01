@@ -40,6 +40,16 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
     );
 
     /**
+     * 재시도 한도를 다 쓴 이벤트 수 조회
+     * idx_status_retry 인덱스 활용 (status, retry_count)
+     *
+     * @param status     조회할 상태
+     * @param retryCount 재시도 횟수 하한
+     * @return 조건에 맞는 행 수
+     */
+    long countByStatusAndRetryCountGreaterThanEqual(OutboxStatus status, int retryCount);
+
+    /**
      * 특정 Aggregate의 이벤트 조회 (디버깅/추적용)
      * 페이징으로 OOM 방지
      *
