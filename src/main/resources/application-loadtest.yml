@@ -55,6 +55,6 @@ reconciliation:
 outbox:
   publisher:
     fixed-delay-ms: 1000
-    max-retry: 300                        # RabbitMQ 장애 2분(120회 재시도) 이상 커버
+    max-retry: 300                        # 브로커가 살아 있을 때의 메시지 실패 상한. 브로커 장애는 횟수를 쓰지 않는다
     batch-size: 100
     stale-threshold-minutes: 1

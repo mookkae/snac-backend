@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpConnectException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -117,6 +118,18 @@ public class OutboxPollingScheduler {
 
                 log.debug("[Outbox Scheduler] 발행 성공. outboxId: {}, eventId: {}, eventType: {}",
                         outbox.getId(), outbox.getEventId(), outbox.getEventType());
+
+            } catch (AmqpConnectException e) {
+                // 브로커 장애는 메시지 탓이 아니다. 횟수를 쓰지 않고 다음 주기에 다시 시도한다
+                failedCount++;
+
+                Counter.builder("outbox_events_published_total")
+                        .tag("result", "fail")
+                        .register(meterRegistry).increment();
+
+                log.warn("[Outbox Scheduler] 브로커 연결 실패. 배치 중단. outboxId: {}, error: {}",
+                        outbox.getId(), e.getMessage());
+                break;
 
             } catch (Exception e) {
                 // 실패 기록 (독립 트랜잭션)
