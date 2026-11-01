@@ -8,6 +8,7 @@ import com.ureca.snac.wallet.dto.CompositeBalanceResult;
 import com.ureca.snac.wallet.dto.WalletAvailableBalanceResponse;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.event.WalletCreatedEvent;
+import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import com.ureca.snac.wallet.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,10 @@ public class WalletServiceImpl implements WalletService {
             return;
         }
 
+        createNewWallet(memberId);
+    }
+
+    private Wallet createNewWallet(Long memberId) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> {
                     log.error("[지갑 생성] 회원 조회 실패. 회원 ID: {}", memberId);
@@ -49,6 +54,7 @@ public class WalletServiceImpl implements WalletService {
         log.info("[지갑 생성] 생성 완료. 지갑 ID : {}, 회원 ID : {}", wallet.getId(), memberId);
 
         publishWalletCreatedEvent(wallet.getId(), memberId);
+        return wallet;
     }
 
     /**
@@ -77,7 +83,7 @@ public class WalletServiceImpl implements WalletService {
         // [낙관락] 락 없이 조회 @Version으로 커밋 시점에 충돌 감지
         // Wallet wallet = findWallet(memberId);
         // [비관락] FOR UPDATE로 조회 직렬화 보장
-        Wallet wallet = findWalletWithLock(memberId);
+        Wallet wallet = findOrCreateWalletWithLock(memberId);
         wallet.depositMoney(amount);
 
         long finalBalance = wallet.getMoneyBalance();
@@ -122,7 +128,9 @@ public class WalletServiceImpl implements WalletService {
     public CompositeBalanceResult moveCompositeToEscrow(Long memberId, long moneyAmount, long pointAmount) {
         log.info("[복합 에스크로 이동] 시작. 회원 ID: {}, 머니: {}, 포인트: {}", memberId, moneyAmount, pointAmount);
 
-        Wallet wallet = findWalletWithLock(memberId);
+        // 지갑이 없으면 잔액도 없다
+        Wallet wallet = walletRepository.findByMemberIdWithLock(memberId)
+                .orElseThrow(InsufficientBalanceException::new);
         wallet.moveCompositeToEscrow(moneyAmount, pointAmount);
 
         CompositeBalanceResult result = CompositeBalanceResult.from(wallet);
@@ -221,13 +229,9 @@ public class WalletServiceImpl implements WalletService {
     public WalletAvailableBalanceResponse getWalletSummary(String email) {
         log.info("[지갑 요약 조회] 시작. 이메일 : {}", email);
 
-        Wallet wallet = walletRepository.findByMemberEmail(email)
-                .orElseThrow(() -> {
-                    log.error("[지갑 요약 조회] 지갑을 찾을 수 없음. 이메일 : {}", email);
-                    return new WalletNotFoundException();
-                });
-
-        WalletAvailableBalanceResponse response = WalletAvailableBalanceResponse.from(wallet);
+        WalletAvailableBalanceResponse response = walletRepository.findByMemberEmail(email)
+                .map(WalletAvailableBalanceResponse::from)
+                .orElseGet(WalletAvailableBalanceResponse::empty);
         log.info("[지갑 요약 조회] 완료. 이메일 : {}", email);
 
         return response;
@@ -245,6 +249,12 @@ public class WalletServiceImpl implements WalletService {
                 });
         log.debug("[지갑 조회] 조회 성공. 회원 ID : {}", memberId);
         return wallet;
+    }
+
+    // 지갑 없는 회원은 정상이다. 돈이 들어올 때 같은 트랜잭션에서 만들어 입금과 생성 이벤트를 함께 커밋한다
+    private Wallet findOrCreateWalletWithLock(Long memberId) {
+        return walletRepository.findByMemberIdWithLock(memberId)
+                .orElseGet(() -> createNewWallet(memberId));
     }
 
     private Wallet findWalletWithLock(Long memberId) {

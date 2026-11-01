@@ -4,8 +4,10 @@ import com.ureca.snac.board.entity.Card;
 import com.ureca.snac.board.entity.constants.CardCategory;
 import com.ureca.snac.board.entity.constants.Carrier;
 import com.ureca.snac.board.entity.constants.SellStatus;
+import com.ureca.snac.common.event.EventType;
 import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.support.IntegrationTestSupport;
+import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.trade.entity.CancelReason;
 import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.entity.TradeStatus;
@@ -418,6 +420,62 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
                 assertThat(walletRepository.findByMemberId(roundBuyer.getId()).orElseThrow().getMoneyEscrow())
                         .isEqualTo(MONEY_AMOUNT);
             }
+        }
+
+        @Test
+        @DisplayName("지갑이 아직 없는 판매자도 구매 확정 시 지갑이 생기고 대금을 받음")
+        void confirmTrade_sellerWithoutWallet_createsWalletAndPays() {
+            // given
+            Member newSeller = memberWithoutWallet("nw_confirm_");
+            Trade trade = escrowTradeFor(newSeller);
+
+            // when
+            tradeProgressService.confirmTrade(trade.getId(), buyer.getEmail(), true);
+
+            // then
+            assertThat(statusOf(trade)).isEqualTo(TradeStatus.COMPLETED);
+            assertThat(moneyOf(newSeller)).isEqualTo(MONEY_AMOUNT);
+            assertThat(walletCreatedEvents(newSeller)).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("지갑이 아직 없는 판매자도 자동 정산으로 대금을 받음")
+        void payoutIfBuyerNoConfirm_sellerWithoutWallet_createsWalletAndPays() {
+            // given
+            Member newSeller = memberWithoutWallet("nw_auto_");
+            Trade trade = escrowTradeFor(newSeller);
+            ageOverLimit(trade);
+
+            // when
+            tradeAutoProcessor.payoutIfBuyerNoConfirm();
+
+            // then
+            assertThat(statusOf(trade)).isEqualTo(TradeStatus.COMPLETED);
+            assertThat(moneyOf(newSeller)).isEqualTo(MONEY_AMOUNT);
+        }
+
+        private Member memberWithoutWallet(String prefix) {
+            String unique = prefix + System.nanoTime();
+            return memberRepository.save(MemberFixture.builder()
+                    .id(null)
+                    .email(unique + "@snac.com")
+                    .nickname(unique.substring(0, 15))
+                    .build());
+        }
+
+        private Trade escrowTradeFor(Member newSeller) {
+            walletService.depositMoney(buyer.getId(), MONEY_AMOUNT);
+            walletService.moveCompositeToEscrow(buyer.getId(), MONEY_AMOUNT, 0L);
+            Card card = saveCard(newSeller, PRICE_GB, SellStatus.TRADING);
+            return saveTrade(buyer, newSeller, card, PRICE_GB, 0, TradeStatus.DATA_SENT);
+        }
+
+        private long walletCreatedEvents(Member member) {
+            long walletId = walletRepository.findByMemberId(member.getId()).orElseThrow().getId();
+            return outboxRepository.findAll().stream()
+                    .filter(outbox -> outbox.getEventType().equals(EventType.WALLET_CREATED.getTypeName()))
+                    .filter(outbox -> outbox.getAggregateId().equals(walletId))
+                    .count();
         }
 
         private void delayIf(boolean delay) {
