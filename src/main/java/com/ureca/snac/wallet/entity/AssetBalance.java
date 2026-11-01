@@ -1,5 +1,6 @@
 package com.ureca.snac.wallet.entity;
 
+import com.ureca.snac.wallet.exception.FrozenBalanceException;
 import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.InvalidAmountException;
 import jakarta.persistence.Embeddable;
@@ -43,13 +44,13 @@ public class AssetBalance {
 
     public AssetBalance withdraw(long amount) {
         validatePositiveAmount(amount);
-        validateSufficientBalance(this.balance, amount);
+        validateSpendable(amount);
         return new AssetBalance(this.balance - amount, this.escrow, this.frozen);
     }
 
     public AssetBalance moveToEscrow(long amount) {
         validatePositiveAmount(amount);
-        validateSufficientBalance(this.balance, amount);
+        validateSpendable(amount);
         return new AssetBalance(this.balance - amount, this.escrow + amount, this.frozen);
     }
 
@@ -67,7 +68,7 @@ public class AssetBalance {
 
     public AssetBalance freeze(long amount) {
         validatePositiveAmount(amount);
-        validateSufficientBalance(this.balance, amount);
+        validateSpendable(amount);
         return new AssetBalance(this.balance - amount, this.escrow, this.frozen + amount);
     }
 
@@ -87,6 +88,14 @@ public class AssetBalance {
         if (amount <= 0) {
             throw new InvalidAmountException();
         }
+    }
+
+    // 가용을 넘는 요청에 동결이 걸려 있으면 잔액 부족이 아니라 취소 처리 중으로 알린다
+    private void validateSpendable(long amount) {
+        if (this.balance < amount && this.frozen > 0) {
+            throw new FrozenBalanceException();
+        }
+        validateSufficientBalance(this.balance, amount);
     }
 
     private void validateSufficientBalance(long currentBalance, long amount) {

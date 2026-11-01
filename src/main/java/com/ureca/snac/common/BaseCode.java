@@ -171,6 +171,7 @@ public enum BaseCode {
     WALLET_NOT_FOUND("WALLET_NOT_FOUND_404", HttpStatus.NOT_FOUND, "지갑 정보를 찾을 수 없습니다"),
     INVALID_AMOUNT("INVALID_AMOUNT_400", HttpStatus.BAD_REQUEST, "금액은 0보다 커야합니다"),
     INSUFFICIENT_BALANCE("INSUFFICIENT_BALANCE_400", HttpStatus.BAD_REQUEST, "잔액이 부족합니다."),
+    BALANCE_FROZEN("BALANCE_FROZEN_400", HttpStatus.BAD_REQUEST, "취소 처리 중인 금액은 사용할 수 없습니다."),
 
     // 단골 - 성공
     FAVORITE_CREATE_SUCCESS("FAVORITE_CREATE_SUCCESS_201", HttpStatus.CREATED, "단골 등록에 성공했습니다."),

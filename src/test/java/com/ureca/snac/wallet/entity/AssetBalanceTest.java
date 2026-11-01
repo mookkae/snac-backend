@@ -1,5 +1,6 @@
 package com.ureca.snac.wallet.entity;
 
+import com.ureca.snac.wallet.exception.FrozenBalanceException;
 import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.InvalidAmountException;
 import org.junit.jupiter.api.BeforeEach;
@@ -373,6 +374,56 @@ class AssetBalanceTest {
         void deductFrozen_zeroAmount_shouldThrow() {
             assertThatThrownBy(() -> assetBalance.deductFrozen(0L))
                     .isInstanceOf(InvalidAmountException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("취소 처리 중 금액")
+    class FrozenSpendTest {
+
+        @BeforeEach
+        void setUp() {
+            // 잔액 10000 중 7000 취소 처리 중 : 가용 3000, 동결 7000
+            assetBalance = AssetBalance.init().deposit(10000L).freeze(7000L);
+        }
+
+        @Test
+        @DisplayName("실패 : 동결이 있고 가용을 넘는 출금 -> FrozenBalanceException")
+        void withdraw_overAvailableWithFrozen_shouldThrowFrozen() {
+            assertThatThrownBy(() -> assetBalance.withdraw(5000L))
+                    .isInstanceOf(FrozenBalanceException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : 동결이 있고 가용을 넘는 에스크로 -> FrozenBalanceException")
+        void moveToEscrow_overAvailableWithFrozen_shouldThrowFrozen() {
+            assertThatThrownBy(() -> assetBalance.moveToEscrow(5000L))
+                    .isInstanceOf(FrozenBalanceException.class);
+        }
+
+        @Test
+        @DisplayName("실패 : 동결이 있고 가용을 넘는 추가 동결 -> FrozenBalanceException")
+        void freeze_overAvailableWithFrozen_shouldThrowFrozen() {
+            assertThatThrownBy(() -> assetBalance.freeze(5000L))
+                    .isInstanceOf(FrozenBalanceException.class);
+        }
+
+        @Test
+        @DisplayName("정상 : 가용 안의 금액은 동결이 있어도 사용 가능")
+        void withdraw_withinAvailable_shouldSucceed() {
+            AssetBalance result = assetBalance.withdraw(2000L);
+
+            assertThat(result.getBalance()).isEqualTo(1000L);
+            assertThat(result.getFrozen()).isEqualTo(7000L);
+        }
+
+        @Test
+        @DisplayName("실패 : 동결이 없으면 기존 잔액 부족")
+        void withdraw_noFrozen_shouldThrowInsufficient() {
+            AssetBalance noFrozen = AssetBalance.init().deposit(3000L);
+
+            assertThatThrownBy(() -> noFrozen.withdraw(5000L))
+                    .isInstanceOf(InsufficientBalanceException.class);
         }
     }
 }
