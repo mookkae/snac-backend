@@ -1,7 +1,6 @@
 package com.ureca.snac.auth.dto;
 
 import com.ureca.snac.member.entity.Member;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -12,7 +11,7 @@ import java.util.Collection;
 @RequiredArgsConstructor
 public class CustomUserDetails implements UserDetails {
 
-    @Getter
+    // JWT 인증 주체의 Member는 이메일과 권한만 가진다. 다른 값은 null이라 밖으로 내주지 않는다
     private final Member member;
 
     @Override
