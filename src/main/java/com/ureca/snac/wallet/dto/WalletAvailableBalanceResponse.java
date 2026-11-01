@@ -10,6 +10,10 @@ public record WalletAvailableBalanceResponse(
         long moneyBalance,
         long pointBalance
 ) {
+    public static WalletAvailableBalanceResponse empty() {
+        return new WalletAvailableBalanceResponse(0L, 0L);
+    }
+
     public static WalletAvailableBalanceResponse from(Wallet wallet) {
         return new WalletAvailableBalanceResponse(
                 wallet.getMoneyOwned(),

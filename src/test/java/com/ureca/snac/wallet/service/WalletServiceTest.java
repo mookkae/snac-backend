@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -190,15 +191,21 @@ class WalletServiceTest {
         }
 
         @Test
-        @DisplayName("예외 : depositMoney - 지갑 없으면 WalletNotFoundException")
-        void depositMoney_walletNotFound_shouldThrow() {
+        @DisplayName("정상 : depositMoney - 지갑 없으면 만들고 입금, 지갑 생성 이벤트 발행")
+        void depositMoney_walletNotFound_shouldCreateAndDeposit() {
             // given
+            Member member = MemberFixture.createMember(99L);
             given(walletRepository.findByMemberIdWithLock(99L))
                     .willReturn(Optional.empty());
+            given(memberRepository.findById(99L))
+                    .willReturn(Optional.of(member));
 
-            // when & then
-            assertThatThrownBy(() -> walletService.depositMoney(99L, 1000L))
-                    .isInstanceOf(WalletNotFoundException.class);
+            // when
+            long balance = walletService.depositMoney(99L, 1000L);
+
+            // then
+            assertThat(balance).isEqualTo(1000L);
+            verify(eventPublisher, times(1)).publishEvent(any(WalletCreatedEvent.class));
         }
     }
 
@@ -595,15 +602,30 @@ class WalletServiceTest {
         }
 
         @Test
-        @DisplayName("예외 : getWalletSummary - 지갑 없으면 WalletNotFoundException")
-        void getWalletSummary_walletNotFound_shouldThrow() {
+        @DisplayName("예외 : moveCompositeToEscrow - 지갑 없으면 잔액 부족")
+        void moveCompositeToEscrow_walletNotFound_shouldThrowInsufficient() {
+            // given
+            given(walletRepository.findByMemberIdWithLock(99L))
+                    .willReturn(Optional.empty());
+
+            // when & then
+            assertThatThrownBy(() -> walletService.moveCompositeToEscrow(99L, 1000L, 0L))
+                    .isInstanceOf(InsufficientBalanceException.class);
+        }
+
+        @Test
+        @DisplayName("정상 : getWalletSummary - 지갑 없으면 0원으로 응답")
+        void getWalletSummary_walletNotFound_shouldReturnZero() {
             // given
             given(walletRepository.findByMemberEmail("none@test.com"))
                     .willReturn(Optional.empty());
 
-            // when & then
-            assertThatThrownBy(() -> walletService.getWalletSummary("none@test.com"))
-                    .isInstanceOf(WalletNotFoundException.class);
+            // when
+            WalletAvailableBalanceResponse response = walletService.getWalletSummary("none@test.com");
+
+            // then
+            assertThat(response.moneyBalance()).isZero();
+            assertThat(response.pointBalance()).isZero();
         }
     }
 

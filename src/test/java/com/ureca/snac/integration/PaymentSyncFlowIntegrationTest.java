@@ -17,6 +17,7 @@ import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.service.PaymentService;
 import com.ureca.snac.support.IntegrationTestSupport;
+import com.ureca.snac.support.fixture.MemberFixture;
 import com.ureca.snac.wallet.entity.Wallet;
 import com.ureca.snac.wallet.exception.FrozenBalanceException;
 import org.junit.jupiter.api.BeforeEach;
@@ -85,6 +86,31 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
     @Nested
     @DisplayName("충전 성공")
     class RechargeSuccessTest {
+
+        @Test
+        @DisplayName("성공 : 지갑이 아직 없는 회원도 충전하면 지갑이 생기고 환불되지 않음")
+        void shouldCreateWalletWhenRechargingWithoutWallet() {
+            // given
+            String unique = "nw_recharge_" + System.nanoTime();
+            Member newMember = memberRepository.save(MemberFixture.builder()
+                    .id(null)
+                    .email(unique + "@snac.com")
+                    .nickname(unique.substring(0, 15))
+                    .build());
+            MoneyRechargePreparedResponse prepared = moneyService.prepareRecharge(
+                    new MoneyRechargeRequest(RECHARGE_AMOUNT), newMember.getEmail());
+            String paymentKey = uniquePaymentKey();
+            mockTossConfirm(paymentKey);
+
+            // when
+            moneyService.processRechargeSuccess(paymentKey, prepared.orderId(), RECHARGE_AMOUNT, newMember.getEmail());
+
+            // then
+            Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+            Wallet wallet = walletRepository.findByMemberId(newMember.getId()).orElseThrow();
+            assertThat(wallet.getMoneyBalance()).isEqualTo(RECHARGE_AMOUNT);
+        }
 
         @Test
         @DisplayName("성공 : 충전 -> Payment SUCCESS + Wallet 증가 + MoneyRecharge + AssetHistory")
