@@ -38,27 +38,25 @@ public interface TradeRepository extends JpaRepository<Trade, Long>, CustomTrade
     @Lock(PESSIMISTIC_WRITE)
     Optional<Trade> findLockedByCardId(Long cardId);
 
-    @Lock(PESSIMISTIC_WRITE)
     @Query("""
-        select t
+        select t.id
           from Trade t
          where t.status = :status
            and t.updatedAt < :limit
     """)
-    List<Trade> findByStatusAndUpdatedAtBefore(@Param("status") TradeStatus status,
-                                               @Param("limit") LocalDateTime limit);
+    List<Long> findIdsByStatusAndUpdatedAtBefore(@Param("status") TradeStatus status,
+                                                 @Param("limit") LocalDateTime limit);
 
 
-    @Lock(PESSIMISTIC_WRITE)
     @Query("""
-  select t from Trade t
-   where t.status = :status
-     and t.updatedAt < :limit
-     and t.autoConfirmPaused = false
-""")
-    List<Trade> findByStatusAndUpdatedAtBeforeAndAutoConfirmPausedFalse(
-            @Param("status") TradeStatus status,
-            @Param("limit")  LocalDateTime limit);
+        select t.id
+          from Trade t
+         where t.status = :status
+           and t.updatedAt < :limit
+           and t.autoConfirmPaused = false
+    """)
+    List<Long> findIdsByStatusAndUpdatedAtBeforeAndAutoConfirmPausedFalse(@Param("status") TradeStatus status,
+                                                                          @Param("limit") LocalDateTime limit);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Trade> findLockedByCardIdAndStatus(Long cardId, TradeStatus tradeStatus);

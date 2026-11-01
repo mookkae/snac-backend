@@ -9,6 +9,8 @@ import com.ureca.snac.member.entity.Member;
 import com.ureca.snac.trade.entity.PenaltyReason;
 import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.entity.TradeStatus;
+import com.ureca.snac.trade.exception.TradeNotFoundException;
+import com.ureca.snac.trade.repository.TradeRepository;
 import com.ureca.snac.trade.service.TradeAlertService;
 import com.ureca.snac.trade.service.interfaces.PenaltyService;
 import com.ureca.snac.wallet.dto.CompositeBalanceResult;
@@ -28,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class TradeAutoItemProcessor {
 
+    private final TradeRepository tradeRepository;
     private final CardRepository cardRepository;
     private final WalletService walletService;
     private final AssetRecorder assetRecorder;
@@ -37,8 +40,10 @@ public class TradeAutoItemProcessor {
     /**
      * 판매자 미전송으로 인한 자동 환불 단건 처리
      * 각 재시도는 새로운 트랜잭션으로 실행됨 (Retry → Transaction 인터셉터 순서 보장)
+     * 목록 조회 뒤 상태가 바뀔 수 있어 잠근 뒤 다시 확인한다
      */
     @Retryable(
+            recover = "recoverRefund",
             retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
@@ -47,7 +52,13 @@ public class TradeAutoItemProcessor {
             )
     )
     @Transactional
-    public void processRefund(Trade trade) {
+    public void processRefund(Long tradeId) {
+        Trade trade = findLockedTrade(tradeId);
+        if (trade.getStatus() != TradeStatus.PAYMENT_CONFIRMED) {
+            log.info("[AUTO_REFUND] trade {} 상태 변경되어 건너뜀. status: {}", tradeId, trade.getStatus());
+            return;
+        }
+
         Card card = findLockedCard(trade.getCardId());
         Member buyer = trade.getBuyer();
 
@@ -77,23 +88,11 @@ public class TradeAutoItemProcessor {
     }
 
     /**
-     * processRefund / processPayout 공통 @Recover
-     * 두 메서드의 파라미터 타입이 동일하므로 단일 메서드로 처리.
-     * Trade 상태로 실패 유형을 구분함 (TX 롤백으로 인해 wallet 호출 전 원래 상태가 유지됨).
-     */
-    @Recover
-    public void recoverProcessItem(DataAccessException e, Trade trade) {
-        switch (trade.getStatus()) {
-            case PAYMENT_CONFIRMED -> tradeAlertService.alertAutoRefundFailure(trade.getId(), e);
-            case DATA_SENT -> tradeAlertService.alertAutoPayoutFailure(trade.getId(), e);
-            default -> tradeAlertService.alertAutoProcessUnexpectedFailure(trade.getId(), trade.getStatus().name(), e);
-        }
-    }
-
-    /**
      * 구매자 미확정으로 인한 자동 정산 단건 처리
+     * 목록 조회 뒤 상태가 바뀔 수 있어 잠근 뒤 다시 확인한다
      */
     @Retryable(
+            recover = "recoverPayout",
             retryFor = {TransientDataAccessException.class},
             maxAttemptsExpression = "${retry.trade.max-attempts}",
             backoff = @Backoff(
@@ -102,7 +101,13 @@ public class TradeAutoItemProcessor {
             )
     )
     @Transactional
-    public void processPayout(Trade trade) {
+    public void processPayout(Long tradeId) {
+        Trade trade = findLockedTrade(tradeId);
+        if (trade.getStatus() != TradeStatus.DATA_SENT || trade.isAutoConfirmPaused()) {
+            log.info("[AUTO_PAYOUT] trade {} 상태 변경되어 건너뜀. status: {}", tradeId, trade.getStatus());
+            return;
+        }
+
         Card card = findLockedCard(trade.getCardId());
         Member buyer = trade.getBuyer();
         Member seller = trade.getSeller();
@@ -121,6 +126,20 @@ public class TradeAutoItemProcessor {
         trade.changeStatus(TradeStatus.COMPLETED);
         penaltyService.givePenalty(trade.getBuyer().getEmail(), PenaltyReason.AUTO_DELAY);
         log.info("[AUTO_PAYOUT] trade {} 판매자 정산 완료", trade.getId());
+    }
+
+    @Recover
+    public void recoverRefund(DataAccessException e, Long tradeId) {
+        tradeAlertService.alertAutoRefundFailure(tradeId, e);
+    }
+
+    @Recover
+    public void recoverPayout(DataAccessException e, Long tradeId) {
+        tradeAlertService.alertAutoPayoutFailure(tradeId, e);
+    }
+
+    private Trade findLockedTrade(Long tradeId) {
+        return tradeRepository.findLockedById(tradeId).orElseThrow(TradeNotFoundException::new);
     }
 
     private Card findLockedCard(Long cardId) {

@@ -11,6 +11,7 @@ import com.ureca.snac.trade.entity.Trade;
 import com.ureca.snac.trade.entity.TradeStatus;
 import com.ureca.snac.trade.entity.TradeType;
 import com.ureca.snac.trade.scheduler.TradeAutoItemProcessor;
+import com.ureca.snac.trade.scheduler.TradeAutoProcessor;
 import com.ureca.snac.trade.service.TradeAlertService;
 import com.ureca.snac.trade.service.TradeCancelServiceImpl;
 import com.ureca.snac.trade.service.TradeProgressServiceImpl;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.ArrayList;
@@ -54,6 +56,12 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
 
     @Autowired
     private TradeAutoItemProcessor tradeAutoItemProcessor;
+
+    @Autowired
+    private TradeAutoProcessor tradeAutoProcessor;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
     private PenaltyService penaltyService;
@@ -90,7 +98,7 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
             Trade trade = saveTrade(buyer, seller, card, PRICE_GB, 0, TradeStatus.PAYMENT_CONFIRMED);
 
             // when
-            tradeAutoItemProcessor.processRefund(trade);
+            tradeAutoItemProcessor.processRefund(trade.getId());
 
             // then: 에스크로 → 잔액 복원 (핵심 금융 불변식)
             Wallet buyerWallet = walletRepository.findByMemberId(buyer.getId()).orElseThrow();
@@ -114,7 +122,7 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
             Trade trade = saveTrade(buyer, seller, card, priceGb, point, TradeStatus.PAYMENT_CONFIRMED);
 
             // when
-            tradeAutoItemProcessor.processRefund(trade);
+            tradeAutoItemProcessor.processRefund(trade.getId());
 
             // then
             Wallet buyerWallet = walletRepository.findByMemberId(buyer.getId()).orElseThrow();
@@ -205,7 +213,7 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
             Trade trade = saveTrade(buyer, seller, card, PRICE_GB, 0, TradeStatus.DATA_SENT);
 
             // when
-            tradeAutoItemProcessor.processPayout(trade);
+            tradeAutoItemProcessor.processPayout(trade.getId());
 
             // then — buyer 에스크로 소멸
             Wallet buyerWallet = walletRepository.findByMemberId(buyer.getId()).orElseThrow();
@@ -232,7 +240,7 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
             Trade trade = saveTrade(buyer, seller, card, priceGb, point, TradeStatus.DATA_SENT);
 
             // when
-            tradeAutoItemProcessor.processPayout(trade);
+            tradeAutoItemProcessor.processPayout(trade.getId());
 
             // then — buyer 에스크로 전액 소멸
             Wallet buyerWallet = walletRepository.findByMemberId(buyer.getId()).orElseThrow();
@@ -310,6 +318,138 @@ class EscrowFlowIntegrationTest extends IntegrationTestSupport {
     }
 
     // 공통 헬퍼
+    // 자동 처리 스케줄러 : 처리기만 부르면 목록 조회의 트랜잭션 문제를 못 잡는다
+    @Nested
+    @DisplayName("자동 처리 스케줄러")
+    class SchedulerTest {
+
+        @Test
+        @DisplayName("자동 정산 : 48시간 지난 거래를 정산하고 두 번 실행해도 한 번만 처리")
+        void payoutIfBuyerNoConfirm_paysOnce() {
+            // given
+            Trade trade = escrowTrade(TradeStatus.DATA_SENT);
+            ageOverLimit(trade);
+
+            // when
+            tradeAutoProcessor.payoutIfBuyerNoConfirm();
+            ageOverLimit(trade);
+            tradeAutoProcessor.payoutIfBuyerNoConfirm();
+
+            // then
+            assertThat(statusOf(trade)).isEqualTo(TradeStatus.COMPLETED);
+            assertThat(moneyOf(seller)).isEqualTo(MONEY_AMOUNT);
+            assertThat(walletRepository.findByMemberId(buyer.getId()).orElseThrow().getMoneyEscrow()).isZero();
+        }
+
+        @Test
+        @DisplayName("자동 환불 : 48시간 지난 거래를 환불하고 두 번 실행해도 한 번만 처리")
+        void refundIfSellerNoSend_refundsOnce() {
+            // given
+            Trade trade = escrowTrade(TradeStatus.PAYMENT_CONFIRMED);
+            ageOverLimit(trade);
+
+            // when
+            tradeAutoProcessor.refundIfSellerNoSend();
+            ageOverLimit(trade);
+            tradeAutoProcessor.refundIfSellerNoSend();
+
+            // then
+            assertThat(statusOf(trade)).isEqualTo(TradeStatus.CANCELED);
+            assertThat(moneyOf(buyer)).isEqualTo(MONEY_AMOUNT);
+        }
+
+        @Test
+        @DisplayName("자동 정산 : 목록 조회 뒤 구매자가 확정한 거래는 건너뜀")
+        void processPayout_alreadyConfirmed_skips() {
+            // given
+            Trade trade = escrowTrade(TradeStatus.DATA_SENT);
+            tradeProgressService.confirmTrade(trade.getId(), buyer.getEmail(), true);
+
+            // when
+            tradeAutoItemProcessor.processPayout(trade.getId());
+
+            // then
+            assertThat(moneyOf(seller)).isEqualTo(MONEY_AMOUNT);
+        }
+
+        @Test
+        @DisplayName("자동 정산 : 목록 조회 뒤 일시 정지된 거래는 건너뜀")
+        void processPayout_paused_skips() {
+            // given
+            Trade trade = escrowTrade(TradeStatus.DATA_SENT);
+            jdbcTemplate.update("update trade set auto_confirm_paused = true where trade_id = ?", trade.getId());
+
+            // when
+            tradeAutoItemProcessor.processPayout(trade.getId());
+
+            // then
+            assertThat(statusOf(trade)).isEqualTo(TradeStatus.DATA_SENT);
+            assertThat(moneyOf(seller)).isZero();
+        }
+
+        // 구매자의 다른 거래 에스크로가 남아 있어야 이중 차감이 막히지 않는 위험한 경우를 재현한다
+        @Test
+        @DisplayName("자동 정산 : 구매자에게 다른 에스크로가 있어도 확정과 동시 실행 시 한 번만 정산")
+        void processPayout_concurrentWithConfirm_paysOnce() throws InterruptedException {
+            for (int round = 0; round < 10; round++) {
+                // given
+                Member roundBuyer = createMemberWithWallet("race_b_" + round + "_");
+                Member roundSeller = createMemberWithWallet("race_s_" + round + "_");
+                walletService.depositMoney(roundBuyer.getId(), MONEY_AMOUNT * 2);
+                walletService.moveCompositeToEscrow(roundBuyer.getId(), MONEY_AMOUNT * 2, 0L);
+                Card card = saveCard(roundSeller, PRICE_GB, SellStatus.TRADING);
+                Trade trade = saveTrade(roundBuyer, roundSeller, card, PRICE_GB, 0, TradeStatus.DATA_SENT);
+                AtomicInteger turn = new AtomicInteger();
+                boolean confirmFirst = round % 2 == 0;
+
+                // when : 라운드마다 먼저 잡는 쪽을 바꾼다. 뒤로 미룬 쪽은 잠금을 기다린다
+                runConcurrently(() -> {
+                    if (turn.getAndIncrement() == 0) {
+                        delayIf(confirmFirst);
+                        tradeAutoItemProcessor.processPayout(trade.getId());
+                    } else {
+                        delayIf(!confirmFirst);
+                        tradeProgressService.confirmTrade(trade.getId(), roundBuyer.getEmail(), true);
+                    }
+                }, 2);
+
+                // then : 판매자는 한 번만 받고 다른 거래의 에스크로는 남는다
+                assertThat(moneyOf(roundSeller)).isEqualTo(MONEY_AMOUNT);
+                assertThat(walletRepository.findByMemberId(roundBuyer.getId()).orElseThrow().getMoneyEscrow())
+                        .isEqualTo(MONEY_AMOUNT);
+            }
+        }
+
+        private void delayIf(boolean delay) {
+            if (delay) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        private Trade escrowTrade(TradeStatus status) {
+            walletService.depositMoney(buyer.getId(), MONEY_AMOUNT);
+            walletService.moveCompositeToEscrow(buyer.getId(), MONEY_AMOUNT, 0L);
+            Card card = saveCard(seller, PRICE_GB, SellStatus.TRADING);
+            return saveTrade(buyer, seller, card, PRICE_GB, 0, status);
+        }
+
+        private void ageOverLimit(Trade trade) {
+            jdbcTemplate.update("update trade set updated_at = date_sub(now(), interval 3 day) where trade_id = ?", trade.getId());
+        }
+
+        private TradeStatus statusOf(Trade trade) {
+            return tradeRepository.findById(trade.getId()).orElseThrow().getStatus();
+        }
+
+        private long moneyOf(Member member) {
+            return walletRepository.findByMemberId(member.getId()).orElseThrow().getMoneyBalance();
+        }
+    }
+
     private Card saveCard(Member owner, int price, SellStatus status) {
         return cardRepository.save(Card.builder()
                 .member(owner)
