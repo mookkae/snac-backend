@@ -106,8 +106,9 @@ public class OutboxRabbitMQConfig {
         // 재시도 안 함 (즉시 DLQ)
         retryableExceptions.put(AmqpRejectAndDontRequeueException.class, false);
 
-        // 나머지는 재시도
-        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(maxAttempts, retryableExceptions, true);
+        // 나머지는 재시도: 4번째 인자 defaultValue=true -> 맵에 없는 예외는 재시도
+        // (3인자 생성자는 defaultValue=false라 맵에 없는 예외를 재시도하지 않는다)
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(maxAttempts, retryableExceptions, true, true);
         retryTemplate.setRetryPolicy(retryPolicy);
 
         // 2. 지수 증가 간격
