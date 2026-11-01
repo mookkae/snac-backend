@@ -116,7 +116,7 @@ public class DevToolServiceImpl implements DevToolService {
         paymentService.cancelPayment(
                 payment.getPaymentKey(),
                 request.reason(),
-                payment.getMember().getId()
+                payment.getMember().getEmail()
         );
 
         log.info("[개발용 충전 취소] 취소 서비스 완료.");

@@ -20,13 +20,14 @@ public interface PaymentService {
 
     /**
      * 결제 취소 기능
+     * JWT 인증 주체에는 회원 ID가 없어 이메일로 요청자를 조회한다
      *
-     * @param paymentKey 취소할 결제 키 (Toss 발급)
-     * @param reason     취소 사유
-     * @param memberId   취소 요청자 ID
+     * @param paymentKey  취소할 결제 키 (Toss 발급)
+     * @param reason      취소 사유
+     * @param memberEmail 취소 요청자 이메일
      * @return 결제 취소의 상세 정보 PaymentCancelResponse DTO
      */
-    PaymentCancelResponse cancelPayment(String paymentKey, String reason, Long memberId);
+    PaymentCancelResponse cancelPayment(String paymentKey, String reason, String memberEmail);
 
     /**
      * Payment를 CANCELED 상태로 변경

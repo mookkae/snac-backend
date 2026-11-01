@@ -122,7 +122,7 @@ class PaymentConcurrencyIntegrationTest extends IntegrationTestSupport {
 
             runConcurrently(() -> {
                 try {
-                    paymentService.cancelPayment(paymentKey, "동시 취소 테스트", member.getId());
+                    paymentService.cancelPayment(paymentKey, "동시 취소 테스트", member.getEmail());
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();

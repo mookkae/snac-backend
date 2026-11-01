@@ -33,7 +33,7 @@ public class PaymentController implements PaymentSwagger {
         log.info("[결제 취소 요청] 시작. paymentKey : {}", paymentKey);
 
         PaymentCancelResponse cancelResponse = paymentService.cancelPayment(
-                paymentKey, request.reason(), userDetails.getMember().getId()
+                paymentKey, request.reason(), userDetails.getUsername()
         );
         log.info("[결제 취소 요청] 성공 paymentKey : {}", paymentKey);
 

@@ -2,6 +2,8 @@ package com.ureca.snac.payment.service;
 
 import com.ureca.snac.payment.port.out.PaymentGatewayPort;
 import com.ureca.snac.member.entity.Member;
+import com.ureca.snac.member.exception.MemberNotFoundException;
+import com.ureca.snac.member.repository.MemberRepository;
 import com.ureca.snac.payment.dto.PaymentCancelResponse;
 import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.entity.Payment;
@@ -32,6 +34,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentAlertNotifier paymentAlertNotifier;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
+    private final MemberRepository memberRepository;
 
 
     @Override
@@ -42,11 +45,18 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
-    public PaymentCancelResponse cancelPayment(String paymentKey, String reason, Long memberId) {
+    public PaymentCancelResponse cancelPayment(String paymentKey, String reason, String memberEmail) {
         String status = "fail";
 
         try {
             log.info("[결제 취소] 시작. 결제 ID : {}", paymentKey);
+
+            Long memberId = memberRepository.findByEmail(memberEmail)
+                    .orElseThrow(() -> {
+                        log.error("[결제 취소] 회원 조회 실패. email: {}", memberEmail);
+                        return new MemberNotFoundException();
+                    })
+                    .getId();
 
             Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey)
                     .orElseThrow(PaymentNotFoundException::new);
