@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.AmqpConnectException;
 import org.springframework.data.domain.PageRequest;
 
+import java.net.ConnectException;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -154,7 +156,30 @@ class OutboxPollingSchedulerTest {
 
     // 실패 시나리오
     @Test
-    @DisplayName("실패 : RabbitMQ 다운 -> SEND_FAIL 업데이트")
+    @DisplayName("실패 : 브로커 연결 실패 -> 배치의 나머지를 시도하지 않는다")
+    void publishPendingEvents_BrokerDown_StopsBatch() {
+        // given
+        Outbox first = OutboxFixture.failedWithRetryWithId(1L, 1L, 1);
+        Outbox second = OutboxFixture.failedWithRetryWithId(2L, 2L, 1);
+
+        given(outboxRepository.findPendingEvents(
+                any(), any(), any(), anyInt(), any()
+        )).willReturn(List.of(first, second));
+
+        doThrow(new AmqpConnectException(new ConnectException("Connection refused")))
+                .when(messagePublisher)
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
+
+        // when
+        outboxPublisher.publishPendingEvents();
+
+        // then : 첫 건에서 멈춘다
+        verify(messagePublisher, times(1))
+                .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    @DisplayName("실패 : 메시지 발행 실패 -> SEND_FAIL 업데이트")
     void publishPendingEvents_RabbitMQDown_MarkAsFailed() {
         // given
         Outbox outbox = OutboxFixture.failedWithRetryWithId(1L, 1L, 1);
