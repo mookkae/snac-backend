@@ -18,6 +18,7 @@ import com.ureca.snac.payment.port.out.dto.PaymentCancelResult;
 import com.ureca.snac.payment.service.PaymentService;
 import com.ureca.snac.support.IntegrationTestSupport;
 import com.ureca.snac.wallet.entity.Wallet;
+import com.ureca.snac.wallet.exception.FrozenBalanceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -210,6 +211,31 @@ class PaymentSyncFlowIntegrationTest extends IntegrationTestSupport {
             // Payment SUCCESS 유지
             Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        }
+
+        @Test
+        @DisplayName("실패 : 취소 처리 중 금액이 있어 가용 부족 -> FrozenBalanceException, Payment SUCCESS 유지")
+        void shouldKeepPaymentWhenBalanceIsFrozen() {
+            // given: 충전 완료 후 일부가 다른 취소로 묶인 상태
+            String paymentKey = uniquePaymentKey();
+            prepareAndCompleteRecharge(paymentKey);
+            mockTossCancel(paymentKey);
+
+            Wallet wallet = walletRepository.findByMemberId(member.getId()).orElseThrow();
+            wallet.freezeMoney(RECHARGE_AMOUNT - 1000L);
+            walletRepository.saveAndFlush(wallet);
+
+            // when, then
+            assertThatThrownBy(() ->
+                    paymentService.cancelPayment(paymentKey, "고객 요청", member.getEmail())
+            ).isInstanceOf(FrozenBalanceException.class);
+
+            // 준비 트랜잭션이 롤백되어 상태와 동결이 그대로다
+            Payment payment = paymentRepository.findByPaymentKeyWithMember(paymentKey).orElseThrow();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+            Wallet after = walletRepository.findByMemberId(member.getId()).orElseThrow();
+            assertThat(after.getMoneyBalance()).isEqualTo(1000L);
+            assertThat(after.getMoneyOwned()).isEqualTo(RECHARGE_AMOUNT);
         }
 
         @Test
