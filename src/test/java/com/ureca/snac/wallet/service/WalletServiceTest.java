@@ -576,6 +576,25 @@ class WalletServiceTest {
         }
 
         @Test
+        @DisplayName("정상 : getWalletSummary - 동결돼도 표시 머니는 유지, 에스크로는 제외")
+        void getWalletSummary_frozen_displayUnchanged() {
+            // given
+            Member member = MemberFixture.createMember(1L);
+            Wallet wallet = WalletFixture.createWalletWithBalance(member, 10000L, 3000L);
+            wallet.moveCompositeToEscrow(2000L, 0L);
+            wallet.freezeMoney(4000L);
+
+            given(walletRepository.findByMemberEmail(member.getEmail()))
+                    .willReturn(Optional.of(wallet));
+
+            // when
+            WalletAvailableBalanceResponse response = walletService.getWalletSummary(member.getEmail());
+
+            // then : 가용 4000 + 동결 4000
+            assertThat(response.moneyBalance()).isEqualTo(8000L);
+        }
+
+        @Test
         @DisplayName("예외 : getWalletSummary - 지갑 없으면 WalletNotFoundException")
         void getWalletSummary_walletNotFound_shouldThrow() {
             // given

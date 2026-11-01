@@ -116,6 +116,11 @@ public class Wallet extends BaseTimeEntity {
         return this.money.getBalance();
     }
 
+    // 표시용 소유 머니 = 가용 + 동결(취소 처리 중). 사용 차단은 AssetBalance가 맡는다
+    public Long getMoneyOwned() {
+        return this.money.getBalance() + this.money.getFrozen();
+    }
+
     public Long getMoneyEscrow() {
         return this.money.getEscrow();
     }
