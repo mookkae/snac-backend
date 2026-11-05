@@ -4,7 +4,6 @@ import com.ureca.snac.common.notification.SlackNotifier;
 import com.ureca.snac.common.notification.dto.SlackAttachment;
 import com.ureca.snac.common.notification.dto.SlackField;
 import com.ureca.snac.common.notification.dto.SlackMessage;
-import com.ureca.snac.config.RabbitMQQueue;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -46,9 +45,9 @@ public class DlqMonitor {
     @Scheduled(fixedDelayString = "${outbox.dlq-monitor.interval}")
     public void monitorDlq() {
         try {
-            checkAndAlert(RabbitMQQueue.MEMBER_JOINED_DLQ, "회원가입");
-            checkAndAlert(RabbitMQQueue.WALLET_CREATED_DLQ, "지갑생성");
-            checkAndAlert(RabbitMQQueue.PAYMENT_CANCEL_COMPENSATE_DLQ, "결제취소보상");
+            for (MonitoredDlq dlq : MonitoredDlq.values()) {
+                checkAndAlert(dlq);
+            }
 
         } catch (Exception e) {
             log.error("[DLQ 모니터링] 실패", e);
@@ -67,7 +66,8 @@ public class DlqMonitor {
     }
 
     // 큐 확인 및 알림 -> 개수 변화 있을 때만 알림 전송
-    private void checkAndAlert(String queueName, String domain) {
+    private void checkAndAlert(MonitoredDlq dlq) {
+        String queueName = dlq.getQueueName();
         Integer currentCount = getMessageCount(queueName);
 
         // Gauge 업데이트
@@ -82,7 +82,7 @@ public class DlqMonitor {
                 // 개수 변화 -> 알림 전송
                 log.warn("[DLQ 감지] queue: {}, count: {}", queueName, currentCount);
 
-                SlackMessage message = buildSlackMessage(queueName, domain, currentCount);
+                SlackMessage message = buildSlackMessage(dlq, currentCount);
                 slackNotifier.sendAsync(message);
 
                 lastAlertedCount.put(queueName, currentCount);
@@ -119,22 +119,16 @@ public class DlqMonitor {
      * Slack 메시지 생성 (Attachment 형식)
      * 운영자 즉시 액션 가능한 가이드 포함
      */
-    private SlackMessage buildSlackMessage(String queueName, String domain, int count) {
+    private SlackMessage buildSlackMessage(MonitoredDlq dlq, int count) {
         String timestamp = LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
         List<SlackField> fields = List.of(
-                SlackField.longField("큐", queueName),
-                SlackField.of("도메인", domain),
+                SlackField.longField("큐", dlq.getQueueName()),
+                SlackField.of("도메인", dlq.getDomain()),
                 SlackField.of("대기 메시지", count + "건"),
                 SlackField.of("발생 시각", timestamp),
-                SlackField.longField("조치",
-                        """
-                                1. RabbitMQ Management Console 접속
-                                2. DLQ 메시지 원인 확인
-                                3. 재처리 또는 삭제 결정
-                                """
-                )
+                SlackField.longField("조치", dlq.getAction())
         );
 
         SlackAttachment attachment = SlackAttachment.danger(fields);
