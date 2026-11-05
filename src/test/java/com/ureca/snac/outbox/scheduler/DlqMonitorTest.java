@@ -6,6 +6,8 @@ import com.ureca.snac.config.RabbitMQQueue;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
@@ -160,5 +162,28 @@ class DlqMonitorTest {
 
         // then 예외 무시, 알림 안 함
         verify(slackNotifier, never()).sendAsync(any());
+    }
+
+    // 운영자가 알림만 보고 그 DLQ에 맞는 조치를 하도록, DLQ마다 정의된 안내가 실려야 한다
+    @ParameterizedTest(name = "{0} 알림에 그 DLQ의 조치가 실린다")
+    @EnumSource(MonitoredDlq.class)
+    @DisplayName("조치 안내 : 알림에 해당 DLQ의 조치가 실린다")
+    void monitorDlq_HasMessages_AlertCarriesDlqAction(MonitoredDlq dlq) {
+        // given
+        QueueInformation queueInfo = mock(QueueInformation.class);
+        given(queueInfo.getMessageCount()).willReturn(1);
+        given(amqpAdmin.getQueueInfo(dlq.getQueueName())).willReturn(queueInfo);
+
+        // when
+        dlqMonitor.monitorDlq();
+
+        // then
+        ArgumentCaptor<SlackMessage> captor = ArgumentCaptor.forClass(SlackMessage.class);
+        verify(slackNotifier, times(1)).sendAsync(captor.capture());
+        assertThat(captor.getValue().attachments().get(0).fields())
+                .anySatisfy(field -> {
+                    assertThat(field.title()).isEqualTo("조치");
+                    assertThat(field.value()).isEqualTo(dlq.getAction());
+                });
     }
 }

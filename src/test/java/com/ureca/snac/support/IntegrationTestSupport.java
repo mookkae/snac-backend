@@ -33,6 +33,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -65,7 +66,11 @@ public abstract class IntegrationTestSupport {
         mysql.start();
 
         // 2. RabbitMQ
-        rabbitMQ = new RabbitMQContainer(DockerImageName.parse("rabbitmq:4.2.5-management"))
+        // 4.3부터 비영속 비배타 큐 선언이 기본으로 거부된다. 알림 큐들이 이 방식이라 허용 설정을 붙인다
+        rabbitMQ = new RabbitMQContainer(DockerImageName.parse("rabbitmq:4.3.7-management"))
+                .withCopyToContainer(
+                        Transferable.of("deprecated_features.permit.transient_nonexcl_queues = true\n"),
+                        "/etc/rabbitmq/conf.d/90-permit-transient-queues.conf")
                 .withReuse(true);
         rabbitMQ.start();
 
