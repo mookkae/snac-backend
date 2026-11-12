@@ -2,6 +2,7 @@ package com.ureca.snac.outbox.scheduler;
 
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
+import com.ureca.snac.outbox.exception.BrokerUnavailableException;
 import com.ureca.snac.outbox.fixture.OutboxFixture;
 import com.ureca.snac.outbox.repository.OutboxRepository;
 import com.ureca.snac.outbox.service.OutboxMessagePublisher;
@@ -14,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.AmqpConnectException;
 import org.springframework.data.domain.PageRequest;
 
 import java.net.ConnectException;
@@ -166,7 +166,7 @@ class OutboxPollingSchedulerTest {
                 any(), any(), any(), anyInt(), any()
         )).willReturn(List.of(first, second));
 
-        doThrow(new AmqpConnectException(new ConnectException("Connection refused")))
+        doThrow(new BrokerUnavailableException(new ConnectException("Connection refused")))
                 .when(messagePublisher)
                 .publish(anyString(), anyString(), anyString(), anyLong(), anyString());
 

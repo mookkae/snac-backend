@@ -1,15 +1,19 @@
 package com.ureca.snac.outbox.service;
 
+import com.rabbitmq.client.ShutdownSignalException;
 import com.ureca.snac.common.event.AggregateType;
 import com.ureca.snac.common.event.EventType;
 import com.ureca.snac.config.AggregateExchangeMapper;
+import com.ureca.snac.outbox.exception.BrokerUnavailableException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpConnectException;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
+import java.net.SocketException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -41,7 +45,8 @@ public class OutboxMessagePublisher {
      * @param eventTypeName     이벤트 타입명
      * @param aggregateId       Aggregate ID
      * @param payload           JSON 페이로드
-     * @throws AmqpException 브로커 NACK, 타임아웃, 연결 실패 시
+     * @throws BrokerUnavailableException 브로커 연결 장애 시 (메시지 탓이 아님)
+     * @throws AmqpException               브로커 NACK, 타임아웃 등 그 밖의 실패 시
      */
     public void publish(
             String eventId,
@@ -56,6 +61,21 @@ public class OutboxMessagePublisher {
 
         CorrelationData correlationData = new CorrelationData(eventId);
 
+        try {
+            send(exchange, eventType, eventId, eventTypeName, aggregateId, payload, correlationData);
+        } catch (AmqpException e) {
+            if (isBrokerConnectionFailure(e)) {
+                throw new BrokerUnavailableException(e);
+            }
+            throw e;
+        }
+
+        log.debug("[OutboxMessagePublisher] 발행 + 브로커 확인 완료. exchange: {}, routingKey: {}, eventId: {}, aggregateId: {}",
+                exchange, eventType.getRoutingKey(), eventId, aggregateId);
+    }
+
+    private void send(String exchange, EventType eventType, String eventId, String eventTypeName,
+                      Long aggregateId, String payload, CorrelationData correlationData) {
         rabbitTemplate.convertAndSend(
                 exchange,
                 eventType.getRoutingKey(),
@@ -71,9 +91,23 @@ public class OutboxMessagePublisher {
 
         // 브로커 수신 확인 대기 (Publisher Confirms)
         waitForConfirm(correlationData, eventId);
+    }
 
-        log.debug("[OutboxMessagePublisher] 발행 + 브로커 확인 완료. exchange: {}, routingKey: {}, eventId: {}, aggregateId: {}",
-                exchange, eventType.getRoutingKey(), eventId, aggregateId);
+    /**
+     * 연결 거부뿐 아니라 브로커가 재시작 중이라 연결을 끊는 경우도 연결 장애로 본다.
+     * Spring은 바깥 IOException만 보고 AmqpIOException으로 바꾸고, 바깥이 종료 신호면 채널 오류도 AmqpConnectException으로 감싼다.
+     * 그래서 타입보다 원인 사슬의 종료 범위를 먼저 본다. 채널만 닫힌 오류(없는 익스체인지 등)는 메시지나 설정 문제다.
+     */
+    private boolean isBrokerConnectionFailure(AmqpException e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ShutdownSignalException signal) {
+                return signal.isHardError();
+            }
+            if (cause instanceof SocketException) {
+                return true;
+            }
+        }
+        return e instanceof AmqpConnectException;
     }
 
     // CorrelationData 기반으로 브로커 확인 대기 (5초 타임아웃)

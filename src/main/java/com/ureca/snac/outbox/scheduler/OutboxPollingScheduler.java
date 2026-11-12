@@ -2,6 +2,7 @@ package com.ureca.snac.outbox.scheduler;
 
 import com.ureca.snac.outbox.entity.Outbox;
 import com.ureca.snac.outbox.entity.OutboxStatus;
+import com.ureca.snac.outbox.exception.BrokerUnavailableException;
 import com.ureca.snac.outbox.repository.OutboxRepository;
 import com.ureca.snac.outbox.service.OutboxMessagePublisher;
 import com.ureca.snac.outbox.service.OutboxStatusUpdater;
@@ -9,7 +10,6 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.AmqpConnectException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -119,7 +119,7 @@ public class OutboxPollingScheduler {
                 log.debug("[Outbox Scheduler] 발행 성공. outboxId: {}, eventId: {}, eventType: {}",
                         outbox.getId(), outbox.getEventId(), outbox.getEventType());
 
-            } catch (AmqpConnectException e) {
+            } catch (BrokerUnavailableException e) {
                 // 브로커 장애는 메시지 탓이 아니다. 횟수를 쓰지 않고 다음 주기에 다시 시도한다
                 failedCount++;
 
