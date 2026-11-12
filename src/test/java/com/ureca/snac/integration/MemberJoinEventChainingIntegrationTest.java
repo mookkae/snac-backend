@@ -138,9 +138,14 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
             // then 3 : Outbox 상태 및 retryCount 검증
             List<Outbox> outboxes = findOutboxes(member.getId(), AggregateType.MEMBER, EventType.MEMBER_JOIN);
 
-            assertThat(outboxes)
-                    .hasSize(1)
-                    .allMatch(o -> o.getRetryCount() >= 1); // 스케줄러가 여러번 했을 수 있어서 최소 1이상이면 통과
+            assertThat(outboxes).hasSize(1);
+
+            // then 3-1 : 브로커 앱이 멈춘 동안 폴러가 몇 번 돌아도 횟수는 즉시 발행 실패 1회에서 늘지 않는다
+            // 앱만 멈춘 브로커는 연결을 끊어 AmqpIOException이 나는데, 이것도 브로커 장애라 횟수를 쓰면 안 된다
+            await().during(Duration.ofSeconds(5))
+                    .atMost(Duration.ofSeconds(8))
+                    .until(() -> findOutboxes(member.getId(), AggregateType.MEMBER, EventType.MEMBER_JOIN)
+                            .get(0).getRetryCount() == 1);
 
             // then 4 : Wallet 생성 안 됨 확인 (이벤트 발행 실패 -> 리스너 동작 X)
             // 이벤트가 발행되지 않았으므로 지갑 생성 리스너는 동작할 수 없음
