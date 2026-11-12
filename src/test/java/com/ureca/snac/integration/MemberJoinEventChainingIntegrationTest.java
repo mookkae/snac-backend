@@ -188,6 +188,8 @@ class MemberJoinEventChainingIntegrationTest extends IntegrationTestSupport {
                 .orElseThrow();
 
         Wallet originalWallet = waitForWallet(member.getId());
+        // 보너스는 큐를 한 번 더 거쳐 늦게 온다. 지급이 끝난 뒤에 중복을 보내야 마지막 포인트 단언이 경쟁하지 않는다
+        waitForPointDeposit(member.getId(), SIGNUP_BONUS_POINT);
 
         // when : MemberJoinEvent 재발행
         MemberJoinEvent duplicateEvent = new MemberJoinEvent(member.getId());
