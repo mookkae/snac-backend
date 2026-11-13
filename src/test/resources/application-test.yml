@@ -134,7 +134,7 @@ outbox:
   publisher:
     max-retry: 10
     batch-size: 100
-    stale-threshold-minutes: 5
+    stale-threshold-minutes: 3
     fixed-delay-ms: 1000
   dlq-monitor:
     interval: 1000
