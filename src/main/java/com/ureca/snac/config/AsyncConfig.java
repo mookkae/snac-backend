@@ -32,8 +32,8 @@ public class AsyncConfig {
      * Outbox 이벤트 발행 전용 Executor
      * <p>
      * 높은 우선순위의 비즈니스 로직
-     * 큐가 가득차면 쓰레드 직접 실행
-     * 이벤트 발행 실패 방지
+     * 큐가 가득 차면 즉시 발행을 버린다. 행은 INIT으로 남아 폴러가 발행한다
+     * 요청 스레드가 발행을 떠맡으면 커넥션을 쥔 채 두 번째 커넥션을 기다리는 교착이 생긴다
      * 우아한 종료 : 배포 시 전송 중이던 이벤트 대기 10초 유예시간 부여
      */
     @Bean(name = EVENT_EXECUTOR_NAME)
@@ -44,7 +44,7 @@ public class AsyncConfig {
         executor.setMaxPoolSize(10);           // 최대 10개
         executor.setQueueCapacity(100);        // 큐는 100개
         executor.setThreadNamePrefix("Event-");
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
 
         // Graceful Shutdown 설정 - 29cm 차용
         executor.setWaitForTasksToCompleteOnShutdown(true);  // 작업 완료 대기

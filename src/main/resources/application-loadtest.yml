@@ -57,4 +57,4 @@ outbox:
     fixed-delay-ms: 1000
     max-retry: 300                        # 브로커가 살아 있을 때의 메시지 실패 상한. 브로커 장애는 횟수를 쓰지 않는다
     batch-size: 100
-    stale-threshold-minutes: 1
+    stale-threshold-minutes: 3             # 즉시 발행이 몰려 대기해도 끝나는 최대 시간(10배 스파이크에서 127초)보다 길게
