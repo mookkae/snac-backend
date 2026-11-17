@@ -6,6 +6,7 @@ public interface SignupBonusService {
      * 멱등성 보장
      *
      * @param memberId 회원 ID
+     * @return 새로 지급했으면 true, 이미 지급돼 건너뛰었으면 false
      */
-    void grantSignupBonus(Long memberId);
+    boolean grantSignupBonus(Long memberId);
 }

@@ -14,6 +14,8 @@ import com.ureca.snac.wallet.exception.InsufficientBalanceException;
 import com.ureca.snac.wallet.exception.InvalidAmountException;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
 import com.ureca.snac.wallet.repository.WalletRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -64,6 +66,55 @@ class WalletServiceTest {
     }
 
     @Nested
+    @DisplayName("지갑 생성 지표")
+    class CreateWalletMetricTest {
+
+        private SimpleMeterRegistry meterRegistry;
+        private WalletServiceImpl service;
+
+        @BeforeEach
+        void setUp() {
+            meterRegistry = new SimpleMeterRegistry();
+            service = new WalletServiceImpl(walletRepository, memberRepository, eventPublisher,
+                    new TransactionAwareMetricRecorder(meterRegistry));
+        }
+
+        @Test
+        @DisplayName("새로 만들면 wallet_operation_total{type=create}가 1 오른다")
+        void createWallet_counts_create() {
+            // given
+            Long memberId = 1L;
+            given(walletRepository.existsByMemberId(memberId)).willReturn(false);
+            given(memberRepository.findById(memberId)).willReturn(Optional.of(MemberFixture.createMember(memberId)));
+
+            // when
+            service.createWallet(memberId);
+
+            // then
+            assertThat(createCount()).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("이미 지갑이 있으면 세지 않는다")
+        void createWallet_alreadyExists_doesNotCount() {
+            // given
+            Long memberId = 1L;
+            given(walletRepository.existsByMemberId(memberId)).willReturn(true);
+
+            // when
+            service.createWallet(memberId);
+
+            // then
+            assertThat(createCount()).isZero();
+        }
+
+        private double createCount() {
+            Counter counter = meterRegistry.find("wallet_operation_total").tag("type", "create").counter();
+            return counter == null ? 0 : counter.count();
+        }
+    }
+
+    @Nested
     @DisplayName("지갑 생성")
     class CreateWalletTest {
 
@@ -103,6 +154,29 @@ class WalletServiceTest {
             verify(memberRepository).findById(memberId);
             verify(walletRepository).save(any());
             verify(eventPublisher).publishEvent(any(WalletCreatedEvent.class));
+        }
+
+        @Test
+        @DisplayName("반환 : 새로 만들면 true")
+        void createWallet_returnsTrueWhenCreated() {
+            // given
+            Long memberId = 1L;
+            given(walletRepository.existsByMemberId(memberId)).willReturn(false);
+            given(memberRepository.findById(memberId)).willReturn(Optional.of(MemberFixture.createMember(memberId)));
+
+            // when, then
+            assertThat(walletService.createWallet(memberId)).isTrue();
+        }
+
+        @Test
+        @DisplayName("반환 : 이미 지갑이 있으면 false")
+        void createWallet_returnsFalseWhenAlreadyExists() {
+            // given
+            Long memberId = 1L;
+            given(walletRepository.existsByMemberId(memberId)).willReturn(true);
+
+            // when, then
+            assertThat(walletService.createWallet(memberId)).isFalse();
         }
 
         @Test

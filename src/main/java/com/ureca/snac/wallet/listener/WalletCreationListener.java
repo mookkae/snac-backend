@@ -43,8 +43,10 @@ public class WalletCreationListener {
 
             log.info("[지갑 생성] 처리 시작. 회원 ID: {}", memberId);
 
-            // 2. 지갑 생성
-            walletService.createWallet(memberId);
+            // 2. 지갑 생성. 이미 있는 재배달은 duplicate로 센다
+            if (!walletService.createWallet(memberId)) {
+                result = "duplicate";
+            }
 
             log.info("[지갑 생성] 완료. 회원 ID: {}", memberId);
 
