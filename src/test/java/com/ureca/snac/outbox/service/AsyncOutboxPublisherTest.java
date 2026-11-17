@@ -8,8 +8,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+
+import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -26,7 +30,7 @@ class AsyncOutboxPublisherTest {
     private SimpleMeterRegistry meterRegistry;
 
     @Mock
-    private OutboxStatusUpdater statusUpdater;
+    private PushStatusWriter statusWriter;
 
     @Mock
     private OutboxMessagePublisher messagePublisher;
@@ -35,7 +39,7 @@ class AsyncOutboxPublisherTest {
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
         asyncOutboxPublisher = new AsyncOutboxPublisher(
-                messagePublisher, statusUpdater, meterRegistry
+                messagePublisher, statusWriter, meterRegistry
         );
     }
 
@@ -66,11 +70,11 @@ class AsyncOutboxPublisherTest {
                 );
 
         // PUBLISHED 상태 업데이트 (원자성)
-        verify(statusUpdater, times(1))
+        verify(statusWriter, times(1))
                 .markAsPublished(eq(1L));
 
         // 실패 처리 안 됨
-        verify(statusUpdater, never())
+        verify(statusWriter, never())
                 .markAsFailed(anyLong());
 
         // 메트릭 검증
@@ -100,16 +104,46 @@ class AsyncOutboxPublisherTest {
         asyncOutboxPublisher.pushImmediately(event);
 
         // then : SEND_FAIL 상태 업데이트
-        verify(statusUpdater, times(1))
+        verify(statusWriter, times(1))
                 .markAsFailed(eq(2L));
 
         // 성공 처리 안 됨
-        verify(statusUpdater, never())
+        verify(statusWriter, never())
                 .markAsPublished(anyLong());
 
         // 메트릭 검증
         assertThat(meterRegistry.get("outbox_events_published_total")
                 .tag("result", "fail").counter().count()).isEqualTo(1.0);
+    }
+
+    // 메시지는 이미 나갔다. 실패로 적으면 재시도 횟수가 오르고 같은 풀을 한 번 더 기다린다
+    // 행은 INIT으로 남아 3분 뒤 폴러가 다시 보내고, 소비자가 중복을 걸러 낸다
+    @Test
+    @DisplayName("Hybrid Push : 발행은 성공했는데 상태 표시가 커넥션을 못 얻으면 실패로 기록하지 않는다")
+    void pushImmediately_MarkPublishedCannotGetConnection_NotRecordedAsFailure() {
+        // given
+        OutboxScheduledEvent event = new OutboxScheduledEvent(
+                4L,
+                "event-uuid-004",
+                "MemberJoinEvent",
+                "MEMBER",
+                400L,
+                "{\"memberId\":400}"
+        );
+        doThrow(new CannotGetJdbcConnectionException(
+                "Failed to obtain JDBC Connection", new SQLException("Connection is not available")))
+                .when(statusWriter).markAsPublished(4L);
+
+        // when & then : 예외가 비동기 스레드 밖으로 나가지 않는다
+        assertThatCode(() -> asyncOutboxPublisher.pushImmediately(event))
+                .doesNotThrowAnyException();
+
+        // then : 실패 표시를 부르지 않는다
+        verify(statusWriter, never()).markAsFailed(anyLong());
+
+        // then : 발행 자체는 성공으로 센다
+        assertThat(meterRegistry.get("outbox_events_published_total")
+                .tag("result", "success").counter().count()).isEqualTo(1.0);
     }
 
     @Test

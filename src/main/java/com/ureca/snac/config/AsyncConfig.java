@@ -1,5 +1,7 @@
 package com.ureca.snac.config;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -27,6 +29,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class AsyncConfig {
     public static final String EVENT_EXECUTOR_NAME = "eventAsyncExecutor";
     public static final String NOTIFICATION_EXECUTOR_NAME = "notificationAsyncExecutor";
+    public static final String PUSH_DISCARDED_METRIC = "outbox_push_discarded_total";
 
     /**
      * Outbox 이벤트 발행 전용 Executor
@@ -34,17 +37,26 @@ public class AsyncConfig {
      * 높은 우선순위의 비즈니스 로직
      * 큐가 가득 차면 즉시 발행을 버린다. 행은 INIT으로 남아 폴러가 발행한다
      * 요청 스레드가 발행을 떠맡으면 커넥션을 쥔 채 두 번째 커넥션을 기다리는 교착이 생긴다
+     * 버릴 때는 버린 수와 경고 로그만 남긴다. 거절 처리기는 요청 스레드에서 돌기 때문에 DB와 브로커를 건드리지 않는다
      * 우아한 종료 : 배포 시 전송 중이던 이벤트 대기 10초 유예시간 부여
      */
     @Bean(name = EVENT_EXECUTOR_NAME)
-    public Executor eventExecutor() {
+    public Executor eventExecutor(MeterRegistry meterRegistry) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
         executor.setCorePoolSize(5);           // 일단 5개
         executor.setMaxPoolSize(10);           // 최대 10개
         executor.setQueueCapacity(100);        // 큐는 100개
         executor.setThreadNamePrefix("Event-");
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+
+        Counter discarded = Counter.builder(PUSH_DISCARDED_METRIC)
+                .description("대기줄이 가득 차 버린 즉시 발행 수")
+                .register(meterRegistry);
+        executor.setRejectedExecutionHandler((task, pool) -> {
+            discarded.increment();
+            log.warn("[비동기] 즉시 발행 대기줄이 가득 차 버림. 행은 INIT으로 남아 폴러가 발행. active: {}, queue: {}",
+                    pool.getActiveCount(), pool.getQueue().size());
+        });
 
         // Graceful Shutdown 설정 - 29cm 차용
         executor.setWaitForTasksToCompleteOnShutdown(true);  // 작업 완료 대기
