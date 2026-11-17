@@ -5,8 +5,8 @@ import com.ureca.snac.wallet.dto.WalletAvailableBalanceResponse;
 
 public interface WalletService {
 
-    // 지갑 생성
-    void createWallet(Long memberId);
+    // 지갑 생성. 새로 만들었으면 true, 이미 있어 건너뛰었으면 false
+    boolean createWallet(Long memberId);
 
     // 머니 입출금
     long depositMoney(Long memberId, long amount);

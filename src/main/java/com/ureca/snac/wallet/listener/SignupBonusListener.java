@@ -44,8 +44,10 @@ public class SignupBonusListener {
             log.info("[포인트 지급 리스너] 처리 시작. 회원 ID: {}, 지갑 ID: {}",
                     memberId, event.walletId());
 
-            // 2. 포인트 지급 (SignupBonusService에 위임)
-            signupBonusService.grantSignupBonus(memberId);
+            // 2. 포인트 지급 (SignupBonusService에 위임). 이미 지급된 재배달은 duplicate로 센다
+            if (!signupBonusService.grantSignupBonus(memberId)) {
+                result = "duplicate";
+            }
 
             log.info("[포인트 지급 리스너] 완료. 회원 ID: {}", memberId);
 

@@ -2,6 +2,7 @@ package com.ureca.snac.wallet.service;
 
 import com.ureca.snac.asset.entity.TransactionDetail;
 import com.ureca.snac.asset.service.AssetRecorder;
+import com.ureca.snac.common.metric.TransactionAwareMetricRecorder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,10 +19,11 @@ public class SignupBonusServiceImpl implements SignupBonusService {
 
     private final WalletService walletService;
     private final AssetRecorder assetRecorder;
+    private final TransactionAwareMetricRecorder metricRecorder;
 
     @Override
     @Transactional
-    public void grantSignupBonus(Long memberId) {
+    public boolean grantSignupBonus(Long memberId) {
         log.info("[회원가입 포인트] 지급 시작. 회원 ID: {}", memberId);
 
         // 1. 멱등성 사전 조회: 순차 중복을 조기 차단해 불필요한 락 경쟁을 방지
@@ -29,7 +31,7 @@ public class SignupBonusServiceImpl implements SignupBonusService {
         // 최종 멱등성은 AssetHistory 의 멱등키가 unique 제약으로 보장
         if (isAlreadyGranted(memberId)) {
             log.info("[회원가입 포인트] 이미 지급됨. 중복 방지. 회원 ID: {}", memberId);
-            return;
+            return false;
         }
 
         // 2. 포인트 지급
@@ -43,6 +45,10 @@ public class SignupBonusServiceImpl implements SignupBonusService {
         assetRecorder.recordSignupBonus(memberId, amount, balanceAfter);
 
         log.info("[회원가입 포인트] 내역 기록 완료. 회원 ID: {}", memberId);
+
+        // 커밋 뒤에만 올라서 지급 내역 수와 같다
+        metricRecorder.increment("signup_bonus_granted_total");
+        return true;
     }
 
     // 회원가입 포인트 지급 여부 확인

@@ -1,7 +1,10 @@
 package com.ureca.snac.wallet.service;
 
 import com.ureca.snac.asset.service.AssetRecorder;
+import com.ureca.snac.common.metric.TransactionAwareMetricRecorder;
 import com.ureca.snac.wallet.exception.WalletNotFoundException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -10,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
@@ -33,9 +37,18 @@ class SignupBonusServiceTest {
     @Mock
     private AssetRecorder assetRecorder;
 
+    private SimpleMeterRegistry meterRegistry;
+
     @BeforeEach
     void setUp() {
-        signupBonusService = new SignupBonusServiceImpl(walletService, assetRecorder);
+        meterRegistry = new SimpleMeterRegistry();
+        signupBonusService = new SignupBonusServiceImpl(walletService, assetRecorder,
+                new TransactionAwareMetricRecorder(meterRegistry));
+    }
+
+    private double grantedCount() {
+        Counter counter = meterRegistry.find("signup_bonus_granted_total").counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private static final Long MEMBER_ID = 1L;
@@ -72,6 +85,54 @@ class SignupBonusServiceTest {
             // then
             verify(walletService, never()).depositPoint(anyLong(), anyLong());
             verify(assetRecorder, never()).recordSignupBonus(anyLong(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("반환 : 새로 지급하면 true")
+        void grantSignupBonus_returnsTrueWhenGranted() {
+            // given
+            given(assetRecorder.hasSignupBonusRecord(MEMBER_ID)).willReturn(false);
+            given(walletService.depositPoint(MEMBER_ID, BONUS_AMOUNT)).willReturn(BONUS_AMOUNT);
+
+            // when, then
+            assertThat(signupBonusService.grantSignupBonus(MEMBER_ID)).isTrue();
+        }
+
+        @Test
+        @DisplayName("반환 : 이미 지급돼 있으면 false")
+        void grantSignupBonus_returnsFalseWhenAlreadyGranted() {
+            // given
+            given(assetRecorder.hasSignupBonusRecord(MEMBER_ID)).willReturn(true);
+
+            // when, then
+            assertThat(signupBonusService.grantSignupBonus(MEMBER_ID)).isFalse();
+        }
+
+        @Test
+        @DisplayName("지표 : 새로 지급하면 signup_bonus_granted_total이 1 오른다")
+        void grantSignupBonus_countsGranted() {
+            // given
+            given(assetRecorder.hasSignupBonusRecord(MEMBER_ID)).willReturn(false);
+            given(walletService.depositPoint(MEMBER_ID, BONUS_AMOUNT)).willReturn(BONUS_AMOUNT);
+
+            // when
+            signupBonusService.grantSignupBonus(MEMBER_ID);
+
+            // then
+            assertThat(grantedCount()).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("지표 : 이미 지급돼 있으면 세지 않는다")
+        void grantSignupBonus_alreadyGranted_doesNotCount() {
+            // given
+            given(assetRecorder.hasSignupBonusRecord(MEMBER_ID)).willReturn(true);
+
+            // when
+            signupBonusService.grantSignupBonus(MEMBER_ID);
+
+            // then
+            assertThat(grantedCount()).isZero();
         }
 
         @Test

@@ -30,15 +30,16 @@ public class WalletServiceImpl implements WalletService {
 
     @Override
     @Transactional
-    public void createWallet(Long memberId) {
+    public boolean createWallet(Long memberId) {
         log.info("[지갑 생성] createWallet 진입. 회원 ID : {}", memberId);
 
         if (walletRepository.existsByMemberId(memberId)) {
             log.info("[지갑 생성] 이미 존재. 중복 처리 방지. 회원 ID: {}", memberId);
-            return;
+            return false;
         }
 
         createNewWallet(memberId);
+        return true;
     }
 
     private Wallet createNewWallet(Long memberId) {
@@ -53,6 +54,8 @@ public class WalletServiceImpl implements WalletService {
 
         log.info("[지갑 생성] 생성 완료. 지갑 ID : {}, 회원 ID : {}", wallet.getId(), memberId);
 
+        // 커밋 뒤에만 올라서 지갑 행 수와 같다
+        incrementCounter("create");
         publishWalletCreatedEvent(wallet.getId(), memberId);
         return wallet;
     }
