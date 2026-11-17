@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -23,7 +24,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class AsyncOutboxPublisher {
 
     private final OutboxMessagePublisher messagePublisher;
-    private final OutboxStatusUpdater statusUpdater;
+    private final PushStatusWriter statusWriter;
     private final MeterRegistry meterRegistry;
 
     /**
@@ -48,8 +49,8 @@ public class AsyncOutboxPublisher {
                     event.payload()
             );
 
-            // 2. 상태 업데이트 (짧은 트랜잭션 - 원자적 업데이트)
-            statusUpdater.markAsPublished(event.outboxId());
+            // 2. 상태 업데이트
+            markAsPublished(event);
 
             Counter.builder("outbox_events_published_total")
                     .tag("result", "success")
@@ -68,7 +69,18 @@ public class AsyncOutboxPublisher {
 
             // 실패 기록 (SEND_FAIL, retryCount++)
             // 스케줄러가 다음 주기에 즉시 재시도
-            statusUpdater.markAsFailed(event.outboxId());
+            statusWriter.markAsFailed(event.outboxId());
+        }
+    }
+
+    // 메시지는 이미 나갔다. 표시가 커넥션을 못 얻어도 실패로 적지 않는다
+    // 행은 INIT으로 남아 폴러가 다시 보내고, 소비자가 중복을 걸러 낸다
+    private void markAsPublished(OutboxScheduledEvent event) {
+        try {
+            statusWriter.markAsPublished(event.outboxId());
+        } catch (CannotGetJdbcConnectionException e) {
+            log.warn("[Async Push] 발행은 됐으나 상태 표시용 커넥션을 얻지 못함. 폴러가 다시 발행. outboxId: {}, eventId: {}",
+                    event.outboxId(), event.eventId());
         }
     }
 }

@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 
 /**
  * Outbox 상태 업데이트 컴포넌트
- * Publisher(스케줄러)에서 공통으로 사용
+ * 폴러(OutboxPollingScheduler) 전용. 즉시 발행은 PushStatusWriter를 쓴다
  * REQUIRES_NEW 전파 속성으로 각 업데이트를 독립적으로 처리
  */
 @Slf4j

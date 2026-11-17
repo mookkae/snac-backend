@@ -236,6 +236,9 @@ outbox:
     batch-size: ${OUTBOX_BATCH_SIZE}
     stale-threshold-minutes: ${OUTBOX_STALE_THRESHOLD}
     fixed-delay-ms: ${OUTBOX_FIXED_DELAY}
+  push:
+    # 즉시 발행 상태 표시 전용 커넥션 풀 크기
+    status-pool-size: 3
   dlq-monitor:
     interval: ${OUTBOX_DLQ_MONITOR_INTERVAL}
   cleanup:
