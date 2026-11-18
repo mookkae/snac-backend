@@ -13,7 +13,7 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
-import java.net.SocketException;
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -97,17 +97,20 @@ public class OutboxMessagePublisher {
      * 연결 거부뿐 아니라 브로커가 재시작 중이라 연결을 끊는 경우도 연결 장애로 본다.
      * Spring은 바깥 IOException만 보고 AmqpIOException으로 바꾸고, 바깥이 종료 신호면 채널 오류도 AmqpConnectException으로 감싼다.
      * 그래서 타입보다 원인 사슬의 종료 범위를 먼저 본다. 채널만 닫힌 오류(없는 익스체인지 등)는 메시지나 설정 문제다.
+     * 종료 신호가 없고 원인에 IOException(이름 찾기 실패, 연결 시간 초과, 소켓 오류)이 있으면 브로커에 닿지 못한 것이다.
+     * 종료 신호는 IOException 안쪽에 있을 수 있어서 사슬 끝까지 본 뒤에 IOException으로 판단한다.
      */
     private boolean isBrokerConnectionFailure(AmqpException e) {
+        boolean ioFailure = false;
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof ShutdownSignalException signal) {
                 return signal.isHardError();
             }
-            if (cause instanceof SocketException) {
-                return true;
+            if (cause instanceof IOException) {
+                ioFailure = true;
             }
         }
-        return e instanceof AmqpConnectException;
+        return ioFailure || e instanceof AmqpConnectException;
     }
 
     // CorrelationData 기반으로 브로커 확인 대기 (5초 타임아웃)

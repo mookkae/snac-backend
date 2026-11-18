@@ -2,6 +2,7 @@ package com.ureca.snac.outbox.service;
 
 import com.ureca.snac.config.AsyncConfig;
 import com.ureca.snac.outbox.event.OutboxScheduledEvent;
+import com.ureca.snac.outbox.exception.BrokerUnavailableException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +59,16 @@ public class AsyncOutboxPublisher {
 
             log.info("[Async Push] 발행 완료. outboxId: {}, eventId: {}, aggregateId: {}",
                     event.outboxId(), event.eventId(), event.aggregateId());
+
+        } catch (BrokerUnavailableException e) {
+            log.warn("[Async Push] 브로커 연결 실패. 재시도 횟수를 쓰지 않고 폴러에 넘김. outboxId: {}, eventId: {}",
+                    event.outboxId(), event.eventId());
+
+            Counter.builder("outbox_events_published_total")
+                    .tag("result", "fail")
+                    .register(meterRegistry).increment();
+
+            statusWriter.markAsFailedWithoutRetry(event.outboxId());
 
         } catch (Exception e) {
             log.error("[Async Push] 발행 실패. 재시도 카운트 증가. outboxId: {}, eventId: {}, error: {}",
