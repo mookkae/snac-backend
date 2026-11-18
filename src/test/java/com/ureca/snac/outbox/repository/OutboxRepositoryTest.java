@@ -476,6 +476,77 @@ class OutboxRepositoryTest extends RepositoryTestSupport {
         }
     }
 
+    @Nested
+    @DisplayName("가장 오래된 미발행 이벤트 조회")
+    class OldestPendingTest {
+
+        private static final int MAX_RETRY = 10;
+
+        @Test
+        @DisplayName("INIT 중 가장 이른 생성 시각을 내고, PUBLISHED는 뺀다")
+        void findOldestCreatedAt_initOnly() {
+            // given
+            insertWithCreatedAt(OutboxStatus.PUBLISHED, 0, 30);
+            insertWithCreatedAt(OutboxStatus.INIT, 0, 20);
+            insertWithCreatedAt(OutboxStatus.INIT, 0, 10);
+
+            // when
+            LocalDateTime oldest = outboxRepository.findOldestCreatedAt(OutboxStatus.INIT);
+
+            // then
+            assertThat(oldest).isBetween(minutesAgo(21), minutesAgo(19));
+        }
+
+        // 폴러는 retryCount < 상한을 줍고, 소진 감시는 retryCount >= 상한을 센다. 지표가 둘 사이에서 어긋나면 어느 쪽에도 안 잡히는 행이 생긴다
+        @Test
+        @DisplayName("SEND_FAIL 중 재시도가 상한보다 적은 행만 본다")
+        void findOldestRetryableCreatedAt_boundary() {
+            // given
+            insertWithCreatedAt(OutboxStatus.SEND_FAIL, MAX_RETRY, 30);
+            insertWithCreatedAt(OutboxStatus.SEND_FAIL, MAX_RETRY - 1, 20);
+
+            // when
+            LocalDateTime oldest = outboxRepository.findOldestRetryableCreatedAt(OutboxStatus.SEND_FAIL, MAX_RETRY);
+
+            // then
+            assertThat(oldest).isBetween(minutesAgo(21), minutesAgo(19));
+        }
+
+        @Test
+        @DisplayName("미발행 이벤트가 없으면 null이다")
+        void findOldestCreatedAt_noneIsNull() {
+            // given
+            insertWithCreatedAt(OutboxStatus.PUBLISHED, 0, 30);
+
+            // when & then
+            assertThat(outboxRepository.findOldestCreatedAt(OutboxStatus.INIT)).isNull();
+        }
+
+        private LocalDateTime minutesAgo(int minutes) {
+            return LocalDateTime.now().minusMinutes(minutes);
+        }
+
+        private void insertWithCreatedAt(OutboxStatus status, int retryCount, int minutesAgo) {
+            LocalDateTime createdAt = minutesAgo(minutesAgo);
+            em.createNativeQuery(
+                            "INSERT INTO outbox " +
+                                    "(event_id, event_type, aggregate_type, aggregate_id, " +
+                                    "payload, status, retry_count, created_at, updated_at) " +
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    )
+                    .setParameter(1, UUID.randomUUID().toString())
+                    .setParameter(2, "MEMBER_JOIN")
+                    .setParameter(3, "MEMBER")
+                    .setParameter(4, 1L)
+                    .setParameter(5, "{\"id\":1}")
+                    .setParameter(6, status.name())
+                    .setParameter(7, retryCount)
+                    .setParameter(8, createdAt)
+                    .setParameter(9, createdAt)
+                    .executeUpdate();
+        }
+    }
+
     private void insertStaleInit(Long aggregateId, int minutesAgo) {
         LocalDateTime createdAt = LocalDateTime.now().minusMinutes(minutesAgo);
 

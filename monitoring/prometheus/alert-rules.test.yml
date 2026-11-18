@@ -1,0 +1,58 @@
+rule_files:
+  - alert-rules.yml
+
+evaluation_interval: 5s
+
+tests:
+  # 재발행 기준 3분(180초). 대기 시간 239초는 기준 + 60초 이하라 안 울리고, 241초부터 울린다
+  - interval: 5s
+    input_series:
+      - series: 'outbox_oldest_pending_age_seconds{instance="a"}'
+        values: '239 241'
+      - series: 'outbox_stale_threshold_seconds{instance="a"}'
+        values: '180 180'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: OutboxPublishDelayed
+        exp_alerts: []
+      - eval_time: 5s
+        alertname: OutboxPublishDelayed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "지갑 생성·가입 보너스 이벤트가 4m 1s째 발행되지 못하고 있습니다"
+              description: "재발행 기준 시간보다 60초 넘게 브로커로 보내지 못한 이벤트가 있습니다. 브로커 상태와 앱 로그의 '[Outbox Scheduler] 브로커 연결 실패'를 확인하세요."
+
+  # 서버 2대가 같은 DB 값을 내도 알림은 1건이다
+  - interval: 5s
+    input_series:
+      - series: 'outbox_oldest_pending_age_seconds{instance="a"}'
+        values: '241'
+      - series: 'outbox_oldest_pending_age_seconds{instance="b"}'
+        values: '241'
+      - series: 'outbox_stale_threshold_seconds{instance="a"}'
+        values: '180'
+      - series: 'outbox_stale_threshold_seconds{instance="b"}'
+        values: '180'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: OutboxPublishDelayed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "지갑 생성·가입 보너스 이벤트가 4m 1s째 발행되지 못하고 있습니다"
+              description: "재발행 기준 시간보다 60초 넘게 브로커로 보내지 못한 이벤트가 있습니다. 브로커 상태와 앱 로그의 '[Outbox Scheduler] 브로커 연결 실패'를 확인하세요."
+
+  # 재발행 기준이 5분이면 241초는 정상이다
+  - interval: 5s
+    input_series:
+      - series: 'outbox_oldest_pending_age_seconds{instance="a"}'
+        values: '241'
+      - series: 'outbox_stale_threshold_seconds{instance="a"}'
+        values: '300'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: OutboxPublishDelayed
+        exp_alerts: []

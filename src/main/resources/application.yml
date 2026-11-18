@@ -236,6 +236,9 @@ outbox:
     batch-size: ${OUTBOX_BATCH_SIZE}
     stale-threshold-minutes: ${OUTBOX_STALE_THRESHOLD}
     fixed-delay-ms: ${OUTBOX_FIXED_DELAY}
+  pending-age:
+    # 미발행 대기 시간 지표 갱신 주기. Prometheus 수집 주기(5초)와 같다
+    refresh-ms: 5000
   push:
     # 즉시 발행 상태 표시 전용 커넥션 풀 크기
     status-pool-size: 3

@@ -24,6 +24,9 @@ jobs:
       - name: Run tests
         run: ./gradlew test
 
+      - name: Test alert rules
+        run: docker run --rm -v "$PWD/monitoring/prometheus:/rules" --entrypoint promtool prom/prometheus:v3.9.1 test rules /rules/alert-rules.test.yml
+
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
         if: always()

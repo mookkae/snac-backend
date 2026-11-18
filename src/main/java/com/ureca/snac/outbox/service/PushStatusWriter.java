@@ -28,6 +28,9 @@ public class PushStatusWriter {
             "UPDATE outbox SET status = 'SEND_FAIL', retry_count = retry_count + 1 " +
                     "WHERE outbox_id = ? AND status <> 'PUBLISHED'";
 
+    private static final String MARK_FAILED_WITHOUT_RETRY_SQL =
+            "UPDATE outbox SET status = 'SEND_FAIL' WHERE outbox_id = ? AND status <> 'PUBLISHED'";
+
     private final JdbcTemplate jdbcTemplate;
 
     // Lombok 생성자는 @Qualifier를 옮기지 않아 기본 풀이 들어온다. 직접 쓴다
@@ -44,6 +47,10 @@ public class PushStatusWriter {
         if (updated == 0) {
             log.debug("[Outbox] 이미 발행됨 또는 존재하지 않음. outboxId: {}", outboxId);
         }
+    }
+
+    public void markAsFailedWithoutRetry(Long outboxId) {
+        jdbcTemplate.update(MARK_FAILED_WITHOUT_RETRY_SQL, outboxId);
     }
 
     public void markAsFailed(Long outboxId) {

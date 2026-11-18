@@ -21,6 +21,8 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -156,6 +158,30 @@ class OutboxMessagePublisherTest {
         }
 
         // 없는 익스체인지 등 채널만 닫힌 오류는 메시지나 설정 문제다. 호출자가 횟수를 써서 결국 포기하고 알려야 한다
+        // 브로커 컨테이너가 사라지면 이름 찾기가 실패한다. 메시지 탓이 아니다
+        @Test
+        @DisplayName("이름 찾기 실패 -> BrokerUnavailableException")
+        void publish_UnknownHost_ThrowsBrokerUnavailable() {
+            // given
+            givenSendThrows(new AmqpIOException(new UnknownHostException("rabbitmq")));
+
+            // when & then
+            assertThatThrownBy(() -> publisher.publish(EVENT_ID, AGGREGATE_TYPE, EVENT_TYPE, AGGREGATE_ID, PAYLOAD))
+                    .isInstanceOf(BrokerUnavailableException.class);
+        }
+
+        // 브로커 서버가 응답 없이 꺼지면 연결이 시간 초과로 끝난다
+        @Test
+        @DisplayName("연결 시간 초과 -> BrokerUnavailableException")
+        void publish_ConnectTimeout_ThrowsBrokerUnavailable() {
+            // given
+            givenSendThrows(new AmqpIOException(new SocketTimeoutException("Connect timed out")));
+
+            // when & then
+            assertThatThrownBy(() -> publisher.publish(EVENT_ID, AGGREGATE_TYPE, EVENT_TYPE, AGGREGATE_ID, PAYLOAD))
+                    .isInstanceOf(BrokerUnavailableException.class);
+        }
+
         @Test
         @DisplayName("채널 단위 오류 -> 원래 예외 그대로")
         void publish_ChannelError_KeepsOriginalException() {
