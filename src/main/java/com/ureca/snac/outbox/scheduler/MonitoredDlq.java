@@ -32,7 +32,7 @@ public enum MonitoredDlq {
 
     private static String redrive(String dlqName, String originalQueue) {
         return """
-                1. 로그에서 eventId로 실패 원인을 확인하고 고친다
+                1. 메시지 본문의 memberId(회원 ID)로 소비자 로그를 찾아 실패 원인을 확인하고 고친다
                 2. RabbitMQ Management Console > %s > Move messages로 %s에 되돌린다 (다시 처리해도 한 번만 반영)
                 3. 다시 DLQ로 돌아온 건만 원인을 보고 폐기하거나 직접 처리한다 (DLQ TTL이 지나면 사라진다)
                 """.formatted(dlqName, originalQueue);
