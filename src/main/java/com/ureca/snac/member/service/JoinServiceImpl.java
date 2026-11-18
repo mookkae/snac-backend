@@ -93,7 +93,5 @@ public class JoinServiceImpl implements JoinService {
         eventPublisher.publishEvent(
                 new MemberJoinEvent(memberId)
         );
-
-        log.info("[이벤트 발행] Outbox 저장 완료. 회원 ID: {}", memberId);
     }
 }
