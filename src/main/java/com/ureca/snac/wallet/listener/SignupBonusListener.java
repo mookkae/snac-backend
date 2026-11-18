@@ -72,7 +72,7 @@ public class SignupBonusListener {
         } catch (Exception e) {
             result = "fail";
             // JSON 파싱/지갑 없음/중복 외 예외는 일시적 장애로 보고 재시도
-            log.error("[포인트 지급 리스너] 일시적 장애 발생. 재시도 예정. 회원 ID: {}", memberId, e);
+            log.error("[포인트 지급 리스너] 일시적 장애 발생. 재시도하고, 횟수를 다 쓰면 DLQ로 보낸다. 회원 ID: {}", memberId, e);
             throw e;
 
         } finally {

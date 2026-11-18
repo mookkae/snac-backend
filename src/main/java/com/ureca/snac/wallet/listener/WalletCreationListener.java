@@ -69,7 +69,7 @@ public class WalletCreationListener {
 
         } catch (Exception e) {
             result = "fail";
-            log.error("[지갑 생성] 일시적 장애 발생. 재시도 예정. 회원 ID: {}", memberId, e);
+            log.error("[지갑 생성] 일시적 장애 발생. 재시도하고, 횟수를 다 쓰면 DLQ로 보낸다. 회원 ID: {}", memberId, e);
             throw e;
 
         } finally {
