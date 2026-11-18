@@ -50,6 +50,23 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
     long countByStatusAndRetryCountGreaterThanEqual(OutboxStatus status, int retryCount);
 
     /**
+     * 상태별 가장 이른 생성 시각 (미발행 대기 시간 지표용)
+     *
+     * @return 없으면 null
+     */
+    @Query("SELECT MIN(o.createdAt) FROM Outbox o WHERE o.status = :status")
+    LocalDateTime findOldestCreatedAt(@Param("status") OutboxStatus status);
+
+    /**
+     * 재시도가 상한보다 적은 행 중 가장 이른 생성 시각 (미발행 대기 시간 지표용)
+     * 폴러 조회 조건(retryCount < maxRetry)과 같다
+     *
+     * @return 없으면 null
+     */
+    @Query("SELECT MIN(o.createdAt) FROM Outbox o WHERE o.status = :status AND o.retryCount < :maxRetry")
+    LocalDateTime findOldestRetryableCreatedAt(@Param("status") OutboxStatus status, @Param("maxRetry") int maxRetry);
+
+    /**
      * 특정 Aggregate의 이벤트 조회 (디버깅/추적용)
      * 페이징으로 OOM 방지
      *
